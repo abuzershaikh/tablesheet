@@ -1090,7 +1090,7 @@ Pipeline MUST have {"steps": [...]}. Example:
     debugPrint("[CopilotAgent] Starting agent loop (memoryEnabled=$memoryEnabled, continuous=$continuousLoopEnabled) for prompt: $prompt");
 
     // Increase max iterations for autonomous loop
-    int maxIterations = continuousLoopEnabled ? 20 : 5;
+    int maxIterations = continuousLoopEnabled ? 25 : 5;
     CopilotService.totalStepsNotifier.value = maxIterations;
 
     Map<String, dynamic>? buildPipelineArgs;

@@ -274,7 +274,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
 
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
-    int maxIterations = supportsTools ? 15 : 1;
+    int maxIterations = supportsTools ? 25 : 1;
 
     for (int i = 0; i < maxIterations; i++) {
       if (_isCancelled) {
