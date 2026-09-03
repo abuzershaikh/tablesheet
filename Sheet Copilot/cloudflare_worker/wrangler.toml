@@ -1,0 +1,6 @@
+name = "sheet-copilot-whisper-stt"
+main = "src/index.js"
+compatibility_date = "2024-03-01"
+
+[ai]
+binding = "AI"

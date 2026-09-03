@@ -1,0 +1,16 @@
+﻿*.zip
+*.log
+*.tar.gz
+**/build/
+**/.dart_tool/
+**/.pub/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/android/.gradle
+**/android/local.properties
+**/android/app/build
+**/android/.cxx
+**/__pycache__/
+*.pyc
+venv/
+.venv/
