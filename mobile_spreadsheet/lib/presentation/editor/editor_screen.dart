@@ -670,18 +670,82 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     overlay.insert(overlayEntry);
   }
 
+  Future<void> _showExitConfirmationDialog() async {
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.save_outlined, color: Colors.amberAccent, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Exit Spreadsheet?',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Do you want to save your changes before exiting, or close now?',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop('cancel'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontSize: 13)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop('close_now'),
+              child: const Text(
+                'Close Now',
+                style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF107C41),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop('save_and_exit'),
+              child: const Text(
+                'Save & Exit',
+                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    if (result == 'save_and_exit') {
+      final controller = context.read<EditorController>();
+      controller.commitCellEdit();
+      final currentSheetId = controller.currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId;
+      await SheetDataStorage.saveCellData(currentSheetId, _cellData);
+      if (currentSheetId != widget.spreadsheet.spreadsheetId) {
+        await SheetDataStorage.saveCellData(widget.spreadsheet.spreadsheetId, _cellData);
+      }
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } else if (result == 'close_now') {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: true,
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        final controller = context.read<EditorController>();
-        controller.commitCellEdit();
-        final currentSheetId = controller.currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId;
-        SheetDataStorage.saveCellData(currentSheetId, _cellData);
-        if (currentSheetId != widget.spreadsheet.spreadsheetId) {
-          SheetDataStorage.saveCellData(widget.spreadsheet.spreadsheetId, _cellData);
-        }
+        if (didPop) return;
+        _showExitConfirmationDialog();
       },
       child: Scaffold(
         key: _scaffoldKey,
@@ -766,7 +830,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                     controller.renameSpreadsheet(newName);
                     widget.onRename?.call(newName);
                   },
-                  onBack: () => Navigator.pop(context),
+                  onBack: _showExitConfirmationDialog,
                   onSearch: _showSearch,
                   onShare: () {},
                   onMoreOptions: () => _showMoreOptionsMenu(context, controller),

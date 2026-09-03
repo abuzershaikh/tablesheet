@@ -63,35 +63,20 @@ class CopilotSessionService {
     flashMessages.clear();
     taskMessages.clear();
 
-    flashMessages.add(CopilotSessionMessage(
-      sender: 'ai',
-      text: '⚡ Flash Copilot Active\nAsk quick questions, formulas, or spreadsheet tasks!',
-      mode: 'flash',
-    ));
-
     taskMessages.add(CopilotSessionMessage(
       sender: 'ai',
-      text: '📋 Task Mode Active\nGive step-by-step spreadsheet instructions!',
+      text: '🤖 Sheet Copilot Active (Task Mode)\nAsk questions, clean data, create formulas, or chat about your spreadsheet! Any instructions you provide will execute live on the sheet.',
       mode: 'task',
     ));
   }
 
   void clearTab(String mode) {
-    if (mode == 'flash') {
-      flashMessages.clear();
-      flashMessages.add(CopilotSessionMessage(
-        sender: 'ai',
-        text: '⚡ Flash Copilot Active\nAsk quick questions, formulas, or spreadsheet tasks!',
-        mode: 'flash',
-      ));
-    } else {
-      taskMessages.clear();
-      taskMessages.add(CopilotSessionMessage(
-        sender: 'ai',
-        text: '📋 Task Mode Active\nGive step-by-step spreadsheet instructions!',
-        mode: 'task',
-      ));
-    }
+    taskMessages.clear();
+    taskMessages.add(CopilotSessionMessage(
+      sender: 'ai',
+      text: '🤖 Sheet Copilot Active (Task Mode)\nAsk questions, clean data, create formulas, or chat about your spreadsheet! Any instructions you provide will execute live on the sheet.',
+      mode: 'task',
+    ));
   }
 
   void saveCurrentSession() {

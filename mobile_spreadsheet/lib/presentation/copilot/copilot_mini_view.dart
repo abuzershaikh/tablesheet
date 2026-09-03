@@ -13,6 +13,7 @@ import 'package:mobile_spreadsheet/domain/services/copilot/local_agent_service.d
 import 'package:mobile_spreadsheet/domain/services/copilot/copilot_service.dart';
 import 'package:mobile_spreadsheet/domain/services/copilot/copilot_session_service.dart';
 import 'package:mobile_spreadsheet/presentation/settings/agent_settings_screen.dart';
+import 'copilot_chat_screen.dart';
 
 typedef CopilotChatMessage = CopilotSessionMessage;
 
@@ -31,7 +32,6 @@ class CopilotMiniView extends StatefulWidget {
 }
 
 class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderStateMixin {
-  late TabController _modeTabController;
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -42,14 +42,12 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
   String _selectedProvider = 'gemini';
   late AnimationController _micPulseController;
 
-  List<CopilotChatMessage> get _flashMessages => CopilotSessionService.instance.flashMessages;
-  List<CopilotChatMessage> get _taskMessages => CopilotSessionService.instance.taskMessages;
+  List<CopilotChatMessage> get _messages => CopilotSessionService.instance.taskMessages;
 
   @override
   void initState() {
     super.initState();
     CopilotSessionService.instance.ensureInitialized();
-    _modeTabController = TabController(length: 2, vsync: this);
     _micPulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -68,7 +66,6 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
 
   @override
   void dispose() {
-    _modeTabController.dispose();
     _inputController.dispose();
     _scrollController.dispose();
     _micPulseController.dispose();
@@ -104,14 +101,13 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
               Navigator.pop(context);
-              final mode = _modeTabController.index == 0 ? 'flash' : 'task';
               setState(() {
-                CopilotSessionService.instance.clearTab(mode);
+                CopilotSessionService.instance.clearTab('task');
               });
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${mode == 'flash' ? 'Flash Copilot' : 'Task Mode'} chat cleared'),
-                  duration: const Duration(seconds: 2),
+                const SnackBar(
+                  content: Text('Chat history cleared'),
+                  duration: Duration(seconds: 1),
                 ),
               );
             },
@@ -424,12 +420,9 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
       await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    final currentMode = _modeTabController.index == 0 ? 'flash' : 'task';
-    final targetList = currentMode == 'flash' ? _flashMessages : _taskMessages;
-
     _inputController.clear();
     setState(() {
-      targetList.add(CopilotChatMessage(sender: 'user', text: trimmed, mode: currentMode));
+      _messages.add(CopilotChatMessage(sender: 'user', text: trimmed, mode: 'task'));
       _isLoading = true;
     });
     _scrollToBottom();
@@ -447,12 +440,12 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
       if (response.success) {
         final pipeline = response.pipeline;
         final explanation = response.explanation.isNotEmpty ? response.explanation : 'Task completed successfully.';
-        targetList.add(CopilotChatMessage(
+        _messages.add(CopilotChatMessage(
           sender: 'ai',
           text: explanation,
           aiResponse: response,
           isExecuted: pipeline != null,
-          mode: currentMode,
+          mode: 'task',
         ));
 
         // Always sync grid with C++ engine's updated cell values
@@ -462,10 +455,10 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
           widget.onPipelineApplied?.call({'steps': []});
         }
       } else {
-        targetList.add(CopilotChatMessage(
+        _messages.add(CopilotChatMessage(
           sender: 'ai',
           text: response.error ?? 'Failed to execute request.',
-          mode: currentMode,
+          mode: 'task',
         ));
       }
     });
@@ -477,10 +470,9 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
     if (msg.aiResponse?.pipeline != null) {
       widget.onPipelineApplied?.call(msg.aiResponse!.pipeline!);
       setState(() {
-        final currentList = msg.mode == 'flash' ? _flashMessages : _taskMessages;
-        final idx = currentList.indexOf(msg);
+        final idx = _messages.indexOf(msg);
         if (idx != -1) {
-          currentList[idx] = msg.copyWith(isExecuted: true);
+          _messages[idx] = msg.copyWith(isExecuted: true);
         }
       });
     }
@@ -492,24 +484,6 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
       color: const Color(0xFF0F172A),
       child: Column(
         children: [
-          // Sub-Tabs Header (Flash Copilot | Task Mode)
-          Container(
-            height: 26,
-            color: const Color(0xFF1E293B),
-            child: TabBar(
-              controller: _modeTabController,
-              indicatorColor: Colors.cyanAccent,
-              indicatorWeight: 2,
-              labelColor: Colors.cyanAccent,
-              unselectedLabelColor: Colors.grey[400],
-              labelStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-              unselectedLabelStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.normal),
-              tabs: const [
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.bolt, size: 12), SizedBox(width: 3), Text('Flash Copilot')])),
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.task_alt, size: 12), SizedBox(width: 3), Text('Task Mode')])),
-              ],
-            ),
-          ),
 
 
 
@@ -730,6 +704,37 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
+
+                    // Full Screen Mode Button
+                    InkWell(
+                      onTap: () {
+                        CopilotFullScreenChatScreen.open(
+                          context,
+                          sheetId: widget.sheetId,
+                          onPipelineApplied: widget.onPipelineApplied,
+                        ).then((_) => setState(() {}));
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.cyan.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.cyanAccent, width: 0.8),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.open_in_full_rounded, color: Colors.cyanAccent, size: 10),
+                            SizedBox(width: 3),
+                            Text(
+                              'Full Screen',
+                              style: TextStyle(color: Colors.cyanAccent, fontSize: 8.5, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -739,13 +744,7 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
 
           // Messages View Area (Scrollable)
           Expanded(
-            child: TabBarView(
-              controller: _modeTabController,
-              children: [
-                _buildMessageList(_flashMessages),
-                _buildMessageList(_taskMessages),
-              ],
-            ),
+            child: _buildMessageList(_messages),
           ),
 
           // Input Bar with Voice Mic & Send Arrow
@@ -766,9 +765,7 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
                       decoration: InputDecoration(
                         hintText: _isRecording
                             ? '🎙️ Listening... Tap mic to stop & auto-send'
-                            : (_modeTabController.index == 0
-                                ? 'Ask Flash Copilot...'
-                                : 'Give Task Mode instructions...'),
+                            : 'Ask AI Agent or give task instructions...',
                         hintStyle: TextStyle(
                           color: _isRecording ? Colors.redAccent : Colors.grey[500],
                           fontSize: 10,
