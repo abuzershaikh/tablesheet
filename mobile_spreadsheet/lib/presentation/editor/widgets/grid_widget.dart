@@ -583,7 +583,7 @@ class GridWidgetState extends State<GridWidget> {
 
 
       setState(() {
-        _cellData.addAll(newCellData);
+        _cellData = Map<String, String>.from(newCellData);
         _dataVersion++;
         _recalculateAll();
       });

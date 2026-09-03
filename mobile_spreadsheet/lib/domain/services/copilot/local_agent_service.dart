@@ -1015,6 +1015,7 @@ Pipeline MUST have {"steps": [...]}. Example:
   }
 
   static final List<Map<String, dynamic>> _persistentMemoryHistory = [];
+  static String? _activeSheetId;
   static bool _isCancelled = false;
 
   static void cancelLoop() {
@@ -1024,14 +1025,26 @@ Pipeline MUST have {"steps": [...]}. Example:
 
   static void clearMemory() {
     _persistentMemoryHistory.clear();
-    debugPrint("[CopilotAgent] Persistent memory cleared.");
+    _activeSheetId = null;
+    NativeEngine.clearGrid();
+    debugPrint("[CopilotAgent] Persistent memory & native grid cleared.");
   }
 
-  static Future<void> syncStorageToNative(String sheetId) async {
+  static Future<void> syncStorageToNative(String sheetId, {String? fallbackSpreadsheetId}) async {
     try {
-      final currentCells = await SheetDataStorage.loadCellData(sheetId);
+      // 1. ALWAYS initialize and clear the C++ native engine first so NO previous sheet data bleeds through!
+      NativeEngine.initialize();
+      NativeEngine.clearGrid();
+
+      // 2. If activeSheetId changed, clear agent memory history
+      if (_activeSheetId != null && _activeSheetId != sheetId) {
+        _persistentMemoryHistory.clear();
+      }
+      _activeSheetId = sheetId;
+
+      // 3. Load active sheet cells from storage
+      final currentCells = await SheetDataStorage.loadCellData(sheetId, fallbackSpreadsheetId: fallbackSpreadsheetId);
       if (currentCells != null && currentCells.isNotEmpty) {
-        NativeEngine.clearGrid();
         currentCells.forEach((key, val) {
           String cellRef = key;
           if (key.contains(':')) {

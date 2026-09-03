@@ -46,6 +46,8 @@ import '../../domain/analytics/models/aggregation_type.dart';
 import '../../domain/analytics/engines/pivot_engine.dart';
 
 import '../../domain/services/copilot/copilot_service.dart';
+import '../../domain/services/copilot/local_agent_service.dart';
+import '../../domain/services/copilot/copilot_session_service.dart';
 import '../copilot/widgets/sheetpro_ai_floating_bot.dart';
 
 /// Editor screen for editing spreadsheets
@@ -418,9 +420,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         final fallbackId = currentIndex == 0 ? widget.spreadsheet.spreadsheetId : null;
         
         final data = await SheetDataStorage.loadCellData(controller.currentSheet!.sheetId, fallbackSpreadsheetId: fallbackId);
-        if (data != null && mounted) {
-           setState(() => _cellData = Map<String, String>.from(data));
-           _gridKey.currentState?.loadNewData(data);
+        final initialData = data ?? {};
+        if (mounted) {
+           setState(() => _cellData = Map<String, String>.from(initialData));
+           _gridKey.currentState?.loadNewData(initialData);
         }
 
         // Restore Conditional Formatting Rules into C++ engine across app restarts
@@ -449,6 +452,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     // Restore bottom navigation buttons when leaving sheet
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
     
+    // Clear C++ native grid and Copilot memory so it NEVER bleeds into the next spreadsheet
+    NativeEngine.clearGrid();
+    LocalAgentService.clearMemory();
+    CopilotSessionService.instance.clearTab('task');
+    CopilotService.clearActionLogs();
+
     CopilotService.pipelineNotifier.removeListener(_onCopilotPipelineTriggered);
     context.read<EditorController>().removeListener(_onControllerChanged);
     _horizontalController.dispose();
@@ -466,7 +475,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       
       final currentSheetId = controller.currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId;
       SheetDataStorage.saveCellData(currentSheetId, _cellData);
-      if (currentSheetId != widget.spreadsheet.spreadsheetId) {
+      final isFirstSheet = controller.currentSheet?.sheetId == widget.spreadsheet.activeSheet?.sheetId;
+      if (isFirstSheet && currentSheetId != widget.spreadsheet.spreadsheetId) {
         SheetDataStorage.saveCellData(widget.spreadsheet.spreadsheetId, _cellData);
       }
     }
@@ -747,7 +757,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       controller.commitCellEdit();
       final currentSheetId = controller.currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId;
       await SheetDataStorage.saveCellData(currentSheetId, _cellData);
-      if (currentSheetId != widget.spreadsheet.spreadsheetId) {
+      final isFirstSheet = controller.currentSheet?.sheetId == widget.spreadsheet.activeSheet?.sheetId;
+      if (isFirstSheet && currentSheetId != widget.spreadsheet.spreadsheetId) {
         await SheetDataStorage.saveCellData(widget.spreadsheet.spreadsheetId, _cellData);
       }
       if (mounted) {
@@ -1200,6 +1211,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           controller.switchSheet(sheets[index]);
                           final fallbackId = index == 0 ? widget.spreadsheet.spreadsheetId : null;
                           final newData = await SheetDataStorage.loadCellData(sheets[index].sheetId, fallbackSpreadsheetId: fallbackId) ?? {};
+                          // Clear memory and native grid so previous tab data never bleeds
+                          LocalAgentService.clearMemory();
+                          NativeEngine.clearGrid();
                           if (mounted) {
                             setState(() {
                               _cellData = newData;
@@ -1214,6 +1228,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           await SheetDataStorage.saveCellData(currentSheet.sheetId, _cellData);
                         }
                         controller.addSheet('Sheet ${sheets.length + 1}');
+                        // Clear memory and native grid for the new empty sheet
+                        LocalAgentService.clearMemory();
+                        NativeEngine.clearGrid();
                         if (mounted) {
                           setState(() {
                             _cellData = {};
