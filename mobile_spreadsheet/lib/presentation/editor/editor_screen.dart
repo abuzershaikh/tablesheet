@@ -46,6 +46,7 @@ import '../../domain/analytics/models/aggregation_type.dart';
 import '../../domain/analytics/engines/pivot_engine.dart';
 
 import '../../domain/services/copilot/copilot_service.dart';
+import '../copilot/widgets/sheetpro_ai_floating_bot.dart';
 
 /// Editor screen for editing spreadsheets
 class EditorScreen extends StatefulWidget {
@@ -67,6 +68,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _horizontalController = ScrollController();
   final ScrollController _verticalController = ScrollController();
+  
   List<String> _pivotAvailableColumns = [];
   bool _isSearching = false;
   int _searchMatchCurrent = 0;
@@ -76,7 +78,24 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   Map<String, CellFormat> _formatMap = {};
 
   bool _isTopDrawerOpen = false;
+  bool _showFloatingAiBot = true;
   int? _lastSuggestedColumn;
+
+  Future<void> _handlePipelineApplied(Map<String, dynamic> pipeline) async {
+    _gridKey.currentState?.syncFromNative();
+    final currentSheetId = widget.spreadsheet.spreadsheetId;
+    final savedFormats = await NumberFormatService.instance.loadFormats(currentSheetId);
+    final sheet1Formats = await NumberFormatService.instance.loadFormats('Sheet1');
+    final mergedFormats = Map<String, CellFormat>.from(savedFormats)..addAll(sheet1Formats);
+    if (mounted) {
+      setState(() {
+        _formatMap = mergedFormats;
+      });
+    }
+    await ConditionalFormattingService.restoreRules(currentSheetId);
+    await ConditionalFormattingService.restoreRules('Sheet1');
+    _gridKey.currentState?.syncFromNative();
+  }
 
   void _openPowerScriptStudio() {
     setState(() => _isTopDrawerOpen = false);
@@ -819,9 +838,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
             );
           }
 
-          return SafeArea(
-            bottom: true,
-            child: Column(
+          return Stack(
+            children: [
+              SafeArea(
+                bottom: true,
+                child: Column(
               children: [
                 // Top App Bar
                 EditorTopAppBar(
@@ -1282,9 +1303,21 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       );
                     },
                   ),
-              ],
+                ],
+              ),
             ),
-          );
+            if (_showFloatingAiBot)
+              SheetproAiFloatingBot(
+                sheetId: controller.currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId,
+                onPipelineApplied: _handlePipelineApplied,
+                onDismiss: () {
+                  setState(() {
+                    _showFloatingAiBot = false;
+                  });
+                },
+              ),
+          ],
+        );
         },
       ),
     ),
@@ -1838,6 +1871,23 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                             context,
                             MaterialPageRoute(builder: (context) => const InvoiceCustomizerScreen()),
                           );
+                        },
+                      ),
+                      const Divider(height: 12),
+                      SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        secondary: const Icon(Icons.smart_toy_rounded, size: 20, color: Color(0xFF06B6D4)),
+                        title: const Text('Sheetpro AI Floating Bot', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Animated Lottie bot on sheet for instant AI Copilot', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                        value: _showFloatingAiBot,
+                        activeColor: const Color(0xFF06B6D4),
+                        onChanged: (val) {
+                          setState(() {
+                            _showFloatingAiBot = val;
+                          });
+                          setModalState(() {});
                         },
                       ),
                       const SizedBox(height: 4),
