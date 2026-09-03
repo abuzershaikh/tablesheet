@@ -20,6 +20,7 @@
 #include "data_engine/cluster/cluster_engine.h"
 #include "data_engine/cleaning/date_cleaner.h"
 #include "data_engine/cleaning/phone_cleaner.h"
+#include "data_engine/cleaning/guarded_fill_down.h"
 #include <android/log.h>
 #include <sstream>
 #include <iomanip>
@@ -1078,6 +1079,31 @@ static JSValue js_range_detectAnomalies(JSContext *ctx, JSValueConst this_val, i
     return arr;
 }
 
+static JSValue js_range_unmergeAndFill(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    std::string ref = getRangeStr(ctx, this_val);
+    int r1, c1, r2, c2;
+    if (!parseBounds(ref, r1, c1, r2, c2)) return JS_DupValue(ctx, this_val);
+    std::string anchorVal = "";
+    for (int r = r1; r <= r2; r++) {
+        for (int c = c1; c <= c2; c++) {
+            std::string cellRef = makeRef(r, c);
+            if (anchorVal.empty()) {
+                EvalResult res = GridManager::getInstance().evaluateCell(cellRef);
+                if (std::holds_alternative<std::string>(res)) anchorVal = std::get<std::string>(res);
+                else if (std::holds_alternative<double>(res)) {
+                    double d = std::get<double>(res);
+                    if (d == std::floor(d)) anchorVal = std::to_string(static_cast<long long>(d));
+                    else { std::ostringstream ss; ss << d; anchorVal = ss.str(); }
+                }
+            }
+            if (!anchorVal.empty()) {
+                GridManager::getInstance().setCellConstantString(cellRef, anchorVal);
+            }
+        }
+    }
+    return JS_DupValue(ctx, this_val);
+}
+
 // Create a Range object with ALL methods bound
 static JSValue createRangeObj(JSContext *ctx, const std::string& rangeStr) {
     JSValue obj = JS_NewObject(ctx);
@@ -1122,6 +1148,7 @@ static JSValue createRangeObj(JSContext *ctx, const std::string& rangeStr) {
     JS_SetPropertyStr(ctx, obj, "setOutline", JS_NewCFunction(ctx, js_range_setOutline, "setOutline", 1));
     JS_SetPropertyStr(ctx, obj, "merge", JS_NewCFunction(ctx, js_range_merge, "merge", 0));
     JS_SetPropertyStr(ctx, obj, "breakApart", JS_NewCFunction(ctx, js_range_breakApart, "breakApart", 0));
+    JS_SetPropertyStr(ctx, obj, "unmergeAndFill", JS_NewCFunction(ctx, js_range_unmergeAndFill, "unmergeAndFill", 0));
     JS_SetPropertyStr(ctx, obj, "getA1Notation", JS_NewCFunction(ctx, js_range_getA1Notation, "getA1Notation", 0));
     JS_SetPropertyStr(ctx, obj, "activate", JS_NewCFunction(ctx, js_range_activate, "activate", 0));
     return obj;
@@ -1648,6 +1675,21 @@ static JSValue js_spreadsheetapp_analyzeEmail(JSContext *ctx, JSValueConst this_
     return obj;
 }
 
+static JSValue js_sheet_guardedFillDown(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    std::string groupCol = "A";
+    std::string anchorCol = "B";
+    if (argc >= 1 && JS_IsString(argv[0])) {
+        const char *s = JS_ToCString(ctx, argv[0]);
+        if (s) { groupCol = s; JS_FreeCString(ctx, s); }
+    }
+    if (argc >= 2 && JS_IsString(argv[1])) {
+        const char *s = JS_ToCString(ctx, argv[1]);
+        if (s) { anchorCol = s; JS_FreeCString(ctx, s); }
+    }
+    auto res = Filters::GuardedFillDown::getInstance().execute(groupCol, anchorCol);
+    return JS_NewInt32(ctx, res.filledCount);
+}
+
 static JSValue createSheetObj(JSContext *ctx, const std::string& sheetName) {
     JSValue obj = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, obj, "name", JS_NewString(ctx, sheetName.c_str()));
@@ -1681,6 +1723,7 @@ static JSValue createSheetObj(JSContext *ctx, const std::string& sheetName) {
     JS_SetPropertyStr(ctx, obj, "flattenMultiTierHeaders", JS_NewCFunction(ctx, js_sheet_flattenMultiTierHeaders, "flattenMultiTierHeaders", 1));
     JS_SetPropertyStr(ctx, obj, "fixMojibake", JS_NewCFunction(ctx, js_sheet_fixMojibake, "fixMojibake", 1));
     JS_SetPropertyStr(ctx, obj, "imputeGaps", JS_NewCFunction(ctx, js_sheet_imputeGaps, "imputeGaps", 2));
+    JS_SetPropertyStr(ctx, obj, "guardedFillDown", JS_NewCFunction(ctx, js_sheet_guardedFillDown, "guardedFillDown", 2));
     JS_SetPropertyStr(ctx, obj, "understandSheet", JS_NewCFunction(ctx, js_sheet_understandSheet, "understandSheet", 0));
     JS_SetPropertyStr(ctx, obj, "findClusters", JS_NewCFunction(ctx, js_sheet_findClusters, "findClusters", 2));
     JS_SetPropertyStr(ctx, obj, "normalizeDates", JS_NewCFunction(ctx, js_sheet_normalizeDates, "normalizeDates", 2));
@@ -1823,6 +1866,7 @@ void JsEngine::bindSpreadsheetApp() {
     JS_SetPropertyStr(m_ctx, appObj, "flattenMultiTierHeaders", JS_NewCFunction(m_ctx, js_sheet_flattenMultiTierHeaders, "flattenMultiTierHeaders", 1));
     JS_SetPropertyStr(m_ctx, appObj, "fixMojibake", JS_NewCFunction(m_ctx, js_sheet_fixMojibake, "fixMojibake", 1));
     JS_SetPropertyStr(m_ctx, appObj, "imputeGaps", JS_NewCFunction(m_ctx, js_sheet_imputeGaps, "imputeGaps", 2));
+    JS_SetPropertyStr(m_ctx, appObj, "guardedFillDown", JS_NewCFunction(m_ctx, js_sheet_guardedFillDown, "guardedFillDown", 2));
     JS_SetPropertyStr(m_ctx, appObj, "understandSheet", JS_NewCFunction(m_ctx, js_sheet_understandSheet, "understandSheet", 0));
     JS_SetPropertyStr(m_ctx, appObj, "findClusters", JS_NewCFunction(m_ctx, js_sheet_findClusters, "findClusters", 2));
     JS_SetPropertyStr(m_ctx, appObj, "normalizeDates", JS_NewCFunction(m_ctx, js_sheet_normalizeDates, "normalizeDates", 2));

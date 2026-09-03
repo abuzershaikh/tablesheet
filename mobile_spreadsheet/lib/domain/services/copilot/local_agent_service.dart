@@ -344,6 +344,24 @@ class LocalAgentService {
           }
         },
         {
+          "name": "guarded_fill_down",
+          "description": "Fills parent values (Invoice #, Date, Department) downwards into empty cells ONLY when the row contains child activity in an anchor column (e.g. Item Name or Amount). Stops automatically at Total/Subtotal/Balance boundaries. NEVER run automatically on general sheets. ONLY run after calling ask_user_question to confirm this is a Tally, ERP, or accounting sheet and receiving user approval.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "group_column": {
+                "type": "STRING",
+                "description": "Column letter to fill down (e.g. 'A' for Invoice # or Date)"
+              },
+              "anchor_column": {
+                "type": "STRING",
+                "description": "Anchor column letter that proves child item exists (e.g. 'C' for Item Name or 'D' for Amount)"
+              }
+            },
+            "required": ["group_column", "anchor_column"]
+          }
+        },
+        {
           "name": "batch_read_rows",
           "description": "Batch reads a focused window of rows (N to N+K, optimal 10-15 rows, max 20 per call) across specified columns. Use to inspect messy data line-by-line in small focused chunks without confusing token limits.",
           "parameters": {
@@ -745,6 +763,13 @@ For EVERY task, follow this loop:
 - `clean_column`: Auto-clean entire column. Phone→+91XXXXXXXXXX. Price→1250.0. Name→Title Case. Email→lowercase.
 - `find_clusters`: OpenRefine-style fuzzy clustering. Returns: clusters [{canonical, variants[], similarity}]. Use for company names, product names, city names with typos.
 - `impute_names_from_emails`: Extracts authentic human names from email addresses and backfills blank Name cells. Only runs if an Email column exists. Automatically ignores bot mailboxes (info@, support@) and random hashes.
+- `guarded_fill_down`: Fills parent values (Invoice #, Date, Department) downwards into blank child rows anchored on active items/amounts.
+  CRITICAL RULE FOR TALLY/ERP DATA:
+  If you detect a sheet with nested ERP/Tally/Invoice structures (e.g. Invoice # in Column A with blank rows beneath it, and items in Column B/C), DO NOT run `guarded_fill_down` automatically!
+  FIRST call `ask_user_question` to ask:
+  "Yeh sheet Tally / ERP ya Accounting export lag rahi hai jisme nested rows hain. Kya main parent values ko neeche fill down kar doon?"
+  options: ["Yes, Fill Down (Tally/ERP)", "No, Keep Rows Blank"]
+  ONLY call `guarded_fill_down` if the user selects "Yes"!
 - `summarize_sheet`: Full sheet JSON (older tool, use understand_sheet instead).
 - `task_complete`: ONLY when ALL work is 100% done.
 
@@ -1454,6 +1479,25 @@ Pipeline MUST have {"steps": [...]}. Example:
                 await syncNativeToStorage(sheetId);
                 CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
               }
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": jsonDecode(resultJson.isNotEmpty ? resultJson : '{}')}
+                }
+              });
+            } else if (name == 'guarded_fill_down') {
+              final groupCol = args['group_column']?.toString() ?? 'A';
+              final anchorCol = args['anchor_column']?.toString() ?? 'B';
+              CopilotService.updateStatus(AgentStatus.executing);
+              CopilotService.addActionLog(
+                'Guarded Fill Down',
+                'Filling $groupCol anchored on $anchorCol (ERP/Tally Normalizer)',
+              );
+              debugPrint("[CopilotAgent] guarded_fill_down: groupCol=$groupCol, anchorCol=$anchorCol");
+              final resultJson = NativeEngine.guardedFillDown(groupCol, anchorCol);
+              debugPrint("[CopilotAgent] guarded_fill_down result: $resultJson");
+              await syncNativeToStorage(sheetId);
+              CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
               userParts.add({
                 "functionResponse": {
                   "name": name,

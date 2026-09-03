@@ -30,6 +30,7 @@
 #include "data_engine/cleaning/record_stitcher.h"
 #include "data_engine/cleaning/mixed_cell_demixer.h"
 #include "data_engine/cleaning/name_from_email_cleaner.h"
+#include "data_engine/cleaning/guarded_fill_down.h"
 #include "data_engine/analyzer/subtotal_isolator.h"
 #include "data_engine/tests/test_runner.h"
 
@@ -2207,6 +2208,22 @@ char* native_imputeNamesFromEmails(const char* nameColLetter, const char* emailC
         res["email_column"] = emailCol;
         res["imputations"] = imputedList;
         return allocFfiString(res.dump());
+    } catch (const std::exception& e) {
+        return allocFfiString(std::string("{\"error\":\"") + e.what() + "\"}");
+    }
+}
+
+char* native_guardedFillDown(const char* groupColLetter, const char* anchorColLetter) {
+    try {
+        std::string gCol = groupColLetter ? groupColLetter : "A";
+        std::string aCol = anchorColLetter ? anchorColLetter : "B";
+        while (!gCol.empty() && std::isspace((unsigned char)gCol.front())) gCol.erase(0, 1);
+        while (!gCol.empty() && std::isspace((unsigned char)gCol.back())) gCol.pop_back();
+        while (!aCol.empty() && std::isspace((unsigned char)aCol.front())) aCol.erase(0, 1);
+        while (!aCol.empty() && std::isspace((unsigned char)aCol.back())) aCol.pop_back();
+
+        auto res = Filters::GuardedFillDown::getInstance().execute(gCol, aCol);
+        return allocFfiString(res.toJson());
     } catch (const std::exception& e) {
         return allocFfiString(std::string("{\"error\":\"") + e.what() + "\"}");
     }

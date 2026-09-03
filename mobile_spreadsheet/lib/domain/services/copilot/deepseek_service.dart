@@ -249,6 +249,13 @@ When cleaning data in the sheet:
 - `isolate_subtotals`: Eliminates subtotal/divider noise.
 - `find_clusters`: OpenRefine-style fuzzy clustering for typos.
 - `impute_names_from_emails`: Extracts authentic human names from email addresses and backfills blank Name cells. Only runs if an Email column exists. Automatically ignores bot mailboxes (info@, support@) and random hashes.
+- `guarded_fill_down`: Fills parent values (Invoice #, Date, Department) downwards into blank child rows anchored on active items/amounts.
+  CRITICAL RULE FOR TALLY/ERP DATA:
+  If you detect a sheet with nested ERP/Tally/Invoice structures (e.g. Invoice # in Column A with blank rows beneath it, and items in Column B/C), DO NOT run `guarded_fill_down` automatically!
+  FIRST call `ask_user_question` to ask:
+  "Yeh sheet Tally / ERP ya Accounting export lag rahi hai jisme nested rows hain. Kya main parent values ko neeche fill down kar doon?"
+  options: ["Yes, Fill Down (Tally/ERP)", "No, Keep Rows Blank"]
+  ONLY call `guarded_fill_down` if the user selects "Yes"!
 - `task_complete`: ONLY when ALL work is verified and done.
 
 === 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
@@ -542,6 +549,19 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                   await LocalAgentService.syncNativeToStorage(sheetId);
                   CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
                 }
+              } else if (name == 'guarded_fill_down') {
+                final groupCol = args['group_column']?.toString() ?? 'A';
+                final anchorCol = args['anchor_column']?.toString() ?? 'B';
+                CopilotService.updateStatus(AgentStatus.executing);
+                CopilotService.addActionLog(
+                  'Guarded Fill Down',
+                  'Filling $groupCol anchored on $anchorCol (ERP/Tally Normalizer)',
+                );
+                debugPrint("[DeepSeekService] guarded_fill_down: groupCol=$groupCol, anchorCol=$anchorCol");
+                final resStr = NativeEngine.guardedFillDown(groupCol, anchorCol);
+                toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
+                await LocalAgentService.syncNativeToStorage(sheetId);
+                CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
               } else if (name == 'batch_read_rows') {
                 final startRow = (args['start_row'] as num?)?.toInt() ?? 2;
                 final count = (args['count'] as num?)?.toInt() ?? 20;

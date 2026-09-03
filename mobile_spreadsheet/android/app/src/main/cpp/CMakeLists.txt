@@ -68,6 +68,7 @@ set(DATA_ENGINE_SOURCES
     data_engine/cleaning/record_stitcher.cpp
     data_engine/cleaning/mixed_cell_demixer.cpp
     data_engine/cleaning/name_from_email_cleaner.cpp
+    data_engine/cleaning/guarded_fill_down.cpp
 
     # Column & Sheet Analyzer (data_engine/analyzer/)
     data_engine/analyzer/column_analyzer.cpp

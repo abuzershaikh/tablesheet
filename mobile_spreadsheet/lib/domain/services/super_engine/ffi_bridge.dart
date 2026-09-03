@@ -194,6 +194,10 @@ typedef _ExtractNamesFromEmailsDart = Pointer<Utf8> Function(Pointer<Utf8> nameC
 typedef _ImputeNamesFromEmailsC = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
 typedef _ImputeNamesFromEmailsDart = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
 
+// Guarded Fill Down (ERP/Tally Accounting)
+typedef _GuardedFillDownC = Pointer<Utf8> Function(Pointer<Utf8> groupCol, Pointer<Utf8> anchorCol);
+typedef _GuardedFillDownDart = Pointer<Utf8> Function(Pointer<Utf8> groupCol, Pointer<Utf8> anchorCol);
+
 
 String _calculateAllTask(void _) {
   NativeEngine.initialize();
@@ -286,6 +290,7 @@ class NativeEngine {
   static late final NativeAutoCleanValueDart _autoCleanValue;
   static late final NativeCleanColumnDart _cleanColumn;
   static late final NativeAnalyzeEmailDart _analyzeEmail;
+  static late final _GuardedFillDownDart _guardedFillDown;
 
   static void initialize() {
     if (_initialized) return;
@@ -366,6 +371,7 @@ class NativeEngine {
     _isolateSubtotals = _lib.lookup<NativeFunction<_IsolateSubtotalsC>>('isolate_subtotals_and_clean_ffi').asFunction();
     _extractNamesFromEmails = _lib.lookup<NativeFunction<_ExtractNamesFromEmailsC>>('native_extractNamesFromEmails').asFunction();
     _imputeNamesFromEmails  = _lib.lookup<NativeFunction<_ImputeNamesFromEmailsC>>('native_imputeNamesFromEmails').asFunction();
+    _guardedFillDown        = _lib.lookup<NativeFunction<_GuardedFillDownC>>('native_guardedFillDown').asFunction();
 
 
     _initComputeEngine();
@@ -1042,6 +1048,21 @@ class NativeEngine {
     final resPtr = _imputeNamesFromEmails(namePtr, emailPtr);
     calloc.free(namePtr);
     calloc.free(emailPtr);
+    if (resPtr == nullptr) return '{"status":"error"}';
+    final res = resPtr.toDartString();
+    _freeString(resPtr);
+    return res;
+  }
+
+  /// Fills parent group values (Invoice #, Date, Department) downwards ONLY for child line items
+  /// that have data in an anchor column (e.g. Item or Amount). Stops at Subtotal/Total rows.
+  static String guardedFillDown(String groupColumn, String anchorColumn) {
+    if (!_initialized) initialize();
+    final groupPtr = groupColumn.toNativeUtf8();
+    final anchorPtr = anchorColumn.toNativeUtf8();
+    final resPtr = _guardedFillDown(groupPtr, anchorPtr);
+    calloc.free(groupPtr);
+    calloc.free(anchorPtr);
     if (resPtr == nullptr) return '{"status":"error"}';
     final res = resPtr.toDartString();
     _freeString(resPtr);
