@@ -9,6 +9,7 @@ import '../../domain/services/copilot/copilot_service.dart';
 import '../../domain/services/copilot/copilot_session_service.dart';
 import '../../domain/services/copilot/whisper_service.dart';
 import '../settings/agent_settings_screen.dart';
+import 'widgets/copilot_question_card.dart';
 
 class CopilotFullScreenChatScreen extends StatefulWidget {
   final String sheetId;
@@ -1147,67 +1148,22 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                     ),
                   ],
 
-                  // ── Interactive Choice Cards ──
-                  if (msg.aiResponse?.questionPayload != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _surfaceWhite,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: _paleBlue),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text('💡', style: TextStyle(fontSize: 13)),
-                              const SizedBox(width: 6),
-                              const Text(
-                                'Select your choice:',
-                                style: TextStyle(color: _primaryBlue, fontSize: 12, fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: msg.aiResponse!.questionPayload!.options.map((opt) {
-                              final isDefault = opt == msg.aiResponse!.questionPayload!.defaultOption;
-                              return InkWell(
-                                onTap: () => _handleSubmitted(opt),
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: isDefault ? _paleBlue : _cardWhite,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: isDefault ? _primaryBlue : _borderLight,
-                                      width: isDefault ? 1.5 : 1,
-                                    ),
-                                    boxShadow: isDefault
-                                        ? [BoxShadow(color: _primaryBlue.withValues(alpha: 0.1), blurRadius: 6)]
-                                        : null,
-                                  ),
-                                  child: Text(
-                                    opt,
-                                    style: TextStyle(
-                                      color: isDefault ? _primaryBlue : _textDark,
-                                      fontSize: 12,
-                                      fontWeight: isDefault ? FontWeight.w700 : FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      ),
+                  // ── Interactive Choice Cards with Custom Answer ──
+                  if (msg.aiResponse?.questionPayload != null)
+                    CopilotQuestionCard(
+                      questionPayload: msg.aiResponse!.questionPayload!,
+                      currentAnswer: msg.userAnswer,
+                      isDarkMode: false,
+                      onAnswerSubmitted: (answer) {
+                        setState(() {
+                          final idx = _messages.indexOf(msg);
+                          if (idx != -1) {
+                            _messages[idx] = msg.copyWith(userAnswer: answer);
+                          }
+                        });
+                        _handleSubmitted(answer);
+                      },
                     ),
-                  ],
                 ],
               ),
             ),

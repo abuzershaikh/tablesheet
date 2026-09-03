@@ -6,6 +6,7 @@ class CopilotSessionMessage {
   final CopilotResponse? aiResponse;
   final bool isExecuted;
   final String mode; // 'flash' or 'task'
+  final String? userAnswer;
 
   CopilotSessionMessage({
     required this.sender,
@@ -13,15 +14,17 @@ class CopilotSessionMessage {
     this.aiResponse,
     this.isExecuted = false,
     this.mode = 'flash',
+    this.userAnswer,
   });
 
-  CopilotSessionMessage copyWith({bool? isExecuted}) {
+  CopilotSessionMessage copyWith({bool? isExecuted, String? userAnswer}) {
     return CopilotSessionMessage(
       sender: sender,
       text: text,
       aiResponse: aiResponse,
       isExecuted: isExecuted ?? this.isExecuted,
       mode: mode,
+      userAnswer: userAnswer ?? this.userAnswer,
     );
   }
 }

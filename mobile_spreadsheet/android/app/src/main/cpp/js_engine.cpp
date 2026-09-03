@@ -285,14 +285,21 @@ static JSValue js_range_setValue(JSContext *ctx, JSValueConst this_val, int argc
     for (int r = r1; r <= r2; r++) {
         for (int c = c1; c <= c2; c++) {
             std::string cellRef = makeRef(r, c);
-            if (JS_IsNumber(argv[0])) {
+            if (JS_IsNull(argv[0]) || JS_IsUndefined(argv[0])) {
+                GridManager::getInstance().clearCell(cellRef);
+            } else if (JS_IsNumber(argv[0])) {
                 double d; JS_ToFloat64(ctx, &d, argv[0]);
                 GridManager::getInstance().setCellConstant(cellRef, d);
             } else if (JS_IsString(argv[0])) {
                 const char *s = JS_ToCString(ctx, argv[0]);
                 std::string v(s ? s : ""); if (s) JS_FreeCString(ctx, s);
-                if (isValidFormulaExpression(v)) GridManager::getInstance().setCellFormula(cellRef, v);
-                else GridManager::getInstance().setCellConstantString(cellRef, v);
+                if (v.empty()) {
+                    GridManager::getInstance().clearCell(cellRef);
+                } else if (isValidFormulaExpression(v)) {
+                    GridManager::getInstance().setCellFormula(cellRef, v);
+                } else {
+                    GridManager::getInstance().setCellConstantString(cellRef, v);
+                }
             } else if (JS_IsBool(argv[0])) {
                 GridManager::getInstance().setCellConstantString(cellRef, JS_ToBool(ctx, argv[0]) ? "TRUE" : "FALSE");
             }
@@ -314,14 +321,21 @@ static JSValue js_range_setValues(JSContext *ctx, JSValueConst this_val, int arg
         for (int c = 0; c < numCols; c++) {
             JSValue cellVal = JS_GetPropertyUint32(ctx, rowArr, c);
             std::string cellRef = makeRef(r1 + r, c1 + c);
-            if (JS_IsNumber(cellVal)) {
+            if (JS_IsNull(cellVal) || JS_IsUndefined(cellVal)) {
+                GridManager::getInstance().clearCell(cellRef);
+            } else if (JS_IsNumber(cellVal)) {
                 double d; JS_ToFloat64(ctx, &d, cellVal);
                 GridManager::getInstance().setCellConstant(cellRef, d);
             } else {
                 const char *s = JS_ToCString(ctx, cellVal);
                 std::string v(s ? s : ""); if (s) JS_FreeCString(ctx, s);
-                if (isValidFormulaExpression(v)) GridManager::getInstance().setCellFormula(cellRef, v);
-                else GridManager::getInstance().setCellConstantString(cellRef, v);
+                if (v.empty()) {
+                    GridManager::getInstance().clearCell(cellRef);
+                } else if (isValidFormulaExpression(v)) {
+                    GridManager::getInstance().setCellFormula(cellRef, v);
+                } else {
+                    GridManager::getInstance().setCellConstantString(cellRef, v);
+                }
             }
             JS_FreeValue(ctx, cellVal);
         }

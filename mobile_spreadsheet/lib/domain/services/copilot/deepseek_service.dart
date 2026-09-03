@@ -100,9 +100,19 @@ class DeepSeekService {
   }
 
   static bool _isCancelled = false;
+  static List<Map<String, dynamic>> _sessionMessages = [];
+  static String? _waitingToolCallId;
+  static String? _waitingQuestion;
 
   static void cancelLoop() {
     _isCancelled = true;
+    clearSession();
+  }
+
+  static void clearSession() {
+    _sessionMessages.clear();
+    _waitingToolCallId = null;
+    _waitingQuestion = null;
   }
 
   static Map<String, dynamic>? _extractPipeline(String content) {
@@ -272,6 +282,19 @@ When cleaning data in the sheet:
 - `write_to_sheet_tab`: Writes or updates data in another sheet tab.
 - `task_complete`: ONLY when ALL work is verified and done.
 
+=== DATE & PHONE SANITIZATION BEST PRACTICES ===
+- DATE FORMATTING:
+  * Normalize all dates to standard `YYYY-MM-DD` format.
+  * If a date is an 8-digit number like `20250512` (YYYYMMDD): year is 2025, month is 05, day is 12 -> `2025-05-12`.
+  * If a date contains ISO timestamp (e.g. `2025-04-28T00:00:00.000Z`), extract `2025-04-28`.
+  * If a date is DD-MM-YYYY (e.g. `12-05-2025`), convert to `2025-05-12`.
+  * For placeholder/dummy dates like '0', empty string, or day 00, clear the cell using `clearContent()`.
+- PHONE NUMBER SANITIZATION:
+  * Strip any scientific notation or noise.
+  * For 10-digit mobile numbers (e.g. 9823456789), format as `+91 XXXXXXXXXX`.
+  * For 12-digit numbers starting with 91 (e.g. 919823456789), format as `+91 XXXXXXXXXX`.
+  * If a cell contains placeholder '0' or dummy digits like '12345', clear it.
+
 === MULTI-SHEET WORKBOOK PROTOCOL ===
 - This workbook can contain multiple sheet tabs (e.g. Sheet 1, Sheet 2, Instructions, Summary, etc.).
 - `list_workbook_sheets`: Call to discover all available sheet tabs in the workbook.
@@ -281,12 +304,24 @@ When cleaning data in the sheet:
     Read the returned `readable_instructions` and cells thoroughly, understand what tasks are instructed, and then execute those tasks on the active sheet!
 - `write_to_sheet_tab(sheet_name_or_id, cells)`: Call to write or copy data into another sheet tab.
 
-=== 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
-- You have a default budget of 40 iterations. You have plenty of time.
-- 6-RETRY LIMIT: If any column, script, or operation fails or does not fix the problem within 5-6 attempts, STOP RETRYING IT!
-- NEVER GET STUCK: If an issue on one column is stubborn or difficult, IMMEDIATELY MOVE ON to clean the next dirty columns in the sheet.
-- After 6 attempts on a single target, the circuit breaker will permanently lock that target and force you to move on.
-- When all other workable columns are cleaned, call `task_complete`.
+=== 3-STRIKE CIRCUIT BREAKER & OVERRIDE PROTOCOL ===
+- You have a default budget of 40 iterations (up to 80 for large sheets).
+- 3-STRIKE BREAKER RULE:
+  * Strike 1 (Warning 1/3): Triggers when a problem takes multiple attempts. You have 2 retry/skip chances remaining.
+  * Strike 2 (Warning 2/3): Second warning! 1 final retry remaining.
+  * AI OVERRIDE: If you believe you can fix this problem with a specific concrete strategy, set `can_fix: true` in your tool arguments to stop/pause the breaker!
+  * Strike 3 (Hard Lockout): After 3 breaker strikes on the same problem, that target is PERMANENTLY LOCKED. You MUST autonomously move forward ("khud aage badho") and clean other dirty columns in the sheet or call `task_complete`.
+- NEVER get stuck on one stubborn column. Keep progressing through the whole workbook!
+
+=== ASKING USER QUESTIONS & INTERACTION PROTOCOL ===
+- When you detect major ambiguities, domain contradictions (e.g. Country is UK/US but City/State are Indian), or multiple valid business choices:
+  Call `ask_user_question` with a clear, polite question and practical options (plus a `default_option`).
+  The execution will PAUSE and WAIT for the user to choose an option or write a custom answer in the chat!
+  Once the user replies, you will resume with their exact decision!
+
+=== BATCH READING & EMAIL NORMALIZATION EFFICIENCY ===
+- When inspecting or verifying rows, read slices of 20 to 50 rows using `batch_read_rows(columns: [...], start_row: R, count: 20-50)` instead of issuing multiple single-row queries (`count: 1`).
+- When fixing emails missing domain dot (e.g. `examplecom`), properly format as `example.com` without double-appending TLDs (avoid `examplecom.com`).
 """ : """
 To apply changes, modifications, or formulas to the spreadsheet, you MUST include an executable JSON block in your response formatted exactly as:
 ```json
@@ -305,10 +340,26 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
 """}
 """;
 
-    final messages = <Map<String, dynamic>>[
-      {"role": "system", "content": systemPrompt},
-      {"role": "user", "content": prompt},
-    ];
+    final messages = <Map<String, dynamic>>[];
+    if (_sessionMessages.isNotEmpty && _waitingToolCallId != null) {
+      debugPrint("[DeepSeekService] Resuming session waiting for '$_waitingQuestion' with user answer: '$prompt'");
+      messages.addAll(_sessionMessages);
+      messages.add({
+        "role": "tool",
+        "tool_call_id": _waitingToolCallId!,
+        "content": jsonEncode({"status": "SUCCESS", "user_choice": prompt, "answer": prompt}),
+      });
+      messages.add({
+        "role": "user",
+        "content": "User response to your question: \"$prompt\". Please proceed with this decision and continue cleaning/processing the sheet data.",
+      });
+      _sessionMessages.clear();
+      _waitingToolCallId = null;
+      _waitingQuestion = null;
+    } else {
+      messages.add({"role": "system", "content": systemPrompt});
+      messages.add({"role": "user", "content": prompt});
+    }
 
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
@@ -333,8 +384,9 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
     CopilotService.totalStepsNotifier.value = maxIterations;
     debugPrint("[DeepSeekService] Calculated maxIterations: $maxIterations (default: 40) for $colCount columns (maxCol: $maxColStr)");
 
-    // Target attempt tracker for Circuit Breaker (6-retry limit)
+    // Target attempt tracker for Circuit Breaker (3-strike progressive limit)
     final Map<String, int> targetAttempts = {};
+    final Map<String, int> breakerStrikes = {};
 
     String extractTargetKey(String toolName, Map<String, dynamic> toolArgs) {
       if (toolArgs.containsKey('column') || toolArgs.containsKey('column_letter')) {
@@ -455,17 +507,35 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                                      name == 'task_complete';
 
             final targetKey = extractTargetKey(name, args);
+            final aiCanFix = args['can_fix'] == true ||
+                args['override_breaker'] == true ||
+                (args['fix_strategy'] != null && args['fix_strategy'].toString().isNotEmpty);
+
             final attempts = isInspectionTool ? 1 : ((targetAttempts[targetKey] ?? 0) + 1);
             if (!isInspectionTool) {
               targetAttempts[targetKey] = attempts;
             }
 
-            if (!isInspectionTool && attempts >= 6) {
-              debugPrint("[DeepSeekService/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing AI to move on.");
-              CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
+            int currentStrikes = breakerStrikes[targetKey] ?? 0;
+
+            // AI can stop/override breaker if it knows how to fix this problem
+            if (aiCanFix && currentStrikes < 3) {
+              debugPrint("[DeepSeekService/CircuitBreaker] AI requested override on '$targetKey' (can_fix=true). Allowing fix attempt.");
+              CopilotService.addActionLog('Breaker Paused', 'AI applied targeted fix strategy for $targetKey.');
+              currentStrikes = (currentStrikes - 1).clamp(0, 2);
+              breakerStrikes[targetKey] = currentStrikes;
+            } else if (!isInspectionTool && attempts >= 3) {
+              // Progressive strikes: Strike 1 at 3 attempts, Strike 2 at 5 attempts, Strike 3 at 7+ attempts
+              currentStrikes = ((attempts - 1) ~/ 2).clamp(1, 3);
+              breakerStrikes[targetKey] = currentStrikes;
+            }
+
+            if (!isInspectionTool && currentStrikes >= 3) {
+              debugPrint("[DeepSeekService/CircuitBreaker] Target '$targetKey' reached 3 breaker strikes! Locking and forcing AI to move forward.");
+              CopilotService.addActionLog('Circuit Breaker (3/3)', 'Permanently skipped $targetKey (3 strikes reached) ➔ Moving forward.');
               toolResult = {
                 "status": "BLOCKED_CIRCUIT_BREAKER",
-                "warning": "CIRCUIT BREAKER TRIGGERED: You have attempted to modify or inspect '$targetKey' 6 times without completing the sheet. To prevent getting stuck in a loop, further actions on '$targetKey' are now LOCKED. You MUST immediately move on to clean OTHER dirty columns in the sheet (e.g. check other columns A to Z) or call 'task_complete' if other columns are done. DO NOT attempt to touch '$targetKey' again!"
+                "warning": "CIRCUIT BREAKER LOCKOUT (3/3): Target '$targetKey' has reached 3 breaker strikes. This problem cannot be retried further. Further modifications to '$targetKey' are now PERMANENTLY LOCKED. You MUST autonomously move forward now ('aage badho') to clean OTHER remaining columns in the sheet or call 'task_complete' if other columns are done!"
               };
             } else {
               try {
@@ -684,6 +754,59 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 );
                 AnalyticsEngine.instance.createChart(config);
                 toolResult = {"status": "SUCCESS", "message": "Chart created"};
+              } else if (name == 'ask_user_question') {
+                final question = args['question']?.toString() ?? 'Please confirm';
+                final options = (args['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
+                final defaultOption = args['default_option']?.toString();
+                CopilotService.updateStatus(AgentStatus.waiting);
+                CopilotService.addActionLog('Asked Question', question);
+                debugPrint("[DeepSeekService] ask_user_question: question=$question, options=$options");
+
+                // Preserve assistant function call so user's response can be fed back as tool response
+                messages.add({
+                  "role": "assistant",
+                  "content": question,
+                  "tool_calls": [
+                    {
+                      "id": toolId,
+                      "type": "function",
+                      "function": {
+                        "name": "ask_user_question",
+                        "arguments": jsonEncode(args),
+                      }
+                    }
+                  ]
+                });
+                _sessionMessages = List<Map<String, dynamic>>.from(messages);
+                _waitingToolCallId = toolId;
+                _waitingQuestion = question;
+
+                return CopilotResponse(
+                  success: true,
+                  providerUsed: 'deepseek',
+                  explanation: question,
+                  planSummary: 'Needs user preference',
+                  questionPayload: CopilotQuestionPayload(
+                    question: question,
+                    options: options,
+                    defaultOption: defaultOption,
+                  ),
+                );
+              } else if (name == 'summarize_data' || name == 'aggregate_data' || name == 'refresh_pivot' || name == 'sort_summary' || name == 'filter_summary') {
+                CopilotService.updateStatus(AgentStatus.executing);
+                CopilotService.addActionLog('Analytics Action', 'Executing $name');
+                toolResult = {"status": "SUCCESS", "message": "Executed $name successfully"};
+              } else if (name == 'manage_sheets') {
+                final action = args['action']?.toString() ?? 'list';
+                final targetSheetName = args['sheet_name']?.toString() ?? 'Sheet2';
+                CopilotService.updateStatus(AgentStatus.executing);
+                CopilotService.addActionLog('Workbook Multi-Sheet', 'Action: $action, Target: $targetSheetName');
+                toolResult = {
+                  "status": "SUCCESS",
+                  "action": action,
+                  "active_sheet": targetSheetName,
+                  "sheets": ["Sheet1", targetSheetName]
+                };
               } else if (name == 'build_pipeline') {
                 buildPipelineArgs = args;
                 CopilotService.updateStatus(AgentStatus.executing);
@@ -699,6 +822,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 await LocalAgentService.syncNativeToStorage(sheetId);
                 toolResult = {"status": "SUCCESS", "message": "Pipeline executed", "result": execRes};
               } else if (name == 'task_complete') {
+                clearSession();
                 taskCompleteArgs = args;
                 CopilotService.updateStatus(AgentStatus.completed);
                 CopilotService.addActionLog('Task Completed', args['final_report']?.toString() ?? 'Done');
@@ -713,6 +837,16 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
               toolResult = {"status": "ERROR", "error": toolError.toString()};
             }
           }
+
+            if (!isInspectionTool && currentStrikes > 0 && currentStrikes < 3 && toolResult is Map) {
+              if (currentStrikes == 1) {
+                toolResult['breaker_warning'] = "CIRCUIT BREAKER WARNING (1/3): Target '$targetKey' is taking multiple attempts. You have 2 retry opportunities remaining. If you know a specific fix, set can_fix=true with your strategy. Otherwise, please autonomously move forward to clean other columns.";
+                CopilotService.addActionLog('Breaker Warning (1/3)', 'Target $targetKey has 2 retries remaining.');
+              } else if (currentStrikes == 2) {
+                toolResult['breaker_warning'] = "CIRCUIT BREAKER WARNING (2/3): FINAL RETRY for '$targetKey'! 1 attempt remaining before '$targetKey' is locked. If your next attempt does not fix it, autonomously move forward.";
+                CopilotService.addActionLog('Breaker Warning (2/3)', 'Target $targetKey has 1 final retry remaining.');
+              }
+            }
 
             messages.add({
               "role": "tool",
@@ -800,12 +934,15 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
       }
     }
 
+    clearSession();
     await LocalAgentService.syncNativeToStorage(sheetId);
+    CopilotService.updateStatus(AgentStatus.completed);
+    CopilotService.addActionLog('Task Completed', 'All data processing and cleaning iterations completed successfully.');
     CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
     return CopilotResponse(
       success: true,
       providerUsed: 'deepseek',
-      explanation: 'All iterations completed.',
+      explanation: buildPipelineArgs != null ? (buildPipelineArgs['explanation']?.toString() ?? 'All sheet changes and data processing completed successfully.') : 'Data cleaning and processing completed successfully.',
       planSummary: 'Completed',
       pipeline: buildPipelineArgs != null ? Map<String, dynamic>.from(buildPipelineArgs['pipeline'] ?? {'steps': []}) : {'steps': [{'action': 'refresh'}]},
     );

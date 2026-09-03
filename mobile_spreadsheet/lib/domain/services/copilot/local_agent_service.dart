@@ -829,6 +829,19 @@ For EVERY task, follow this loop:
     Read the returned `readable_instructions` and cells thoroughly, understand what tasks are instructed, and then execute those tasks on the active sheet!
 - `write_to_sheet_tab(sheet_name_or_id, cells)`: Call to write or copy data into another sheet tab.
 
+=== DATE & PHONE SANITIZATION BEST PRACTICES ===
+- DATE FORMATTING:
+  * Normalize all dates to standard `YYYY-MM-DD` format.
+  * If a date is an 8-digit number like `20250512` (YYYYMMDD): year is 2025, month is 05, day is 12 -> `2025-05-12`.
+  * If a date contains ISO timestamp (e.g. `2025-04-28T00:00:00.000Z`), extract `2025-04-28`.
+  * If a date is DD-MM-YYYY (e.g. `12-05-2025`), convert to `2025-05-12`.
+  * For placeholder/dummy dates like '0', empty string, or day 00, clear the cell using `clearContent()`.
+- PHONE NUMBER SANITIZATION:
+  * Strip any scientific notation or noise.
+  * For 10-digit mobile numbers (e.g. 9823456789), format as `+91 XXXXXXXXXX`.
+  * For 12-digit numbers starting with 91 (e.g. 919823456789), format as `+91 XXXXXXXXXX`.
+  * If a cell contains placeholder '0' or dummy digits like '12345', clear it.
+
 === CRITICAL DATA PRESERVATION & SAFETY RULES ===
 1. NEVER DELETE, CLEAR, OR OVERWRITE COLUMNS OR ROWS UNLESS THE USER EXPLICITLY COMMANDS YOU TO DELETE OR CLEAR THEM.
 2. When cleaning a sheet (e.g. "clean this sheet" or "format data"), PRESERVE ALL ORIGINAL DATA in every column (Names, Emails, Addresses, Cities, Phone Numbers, Amounts, IDs, Dates).
@@ -974,12 +987,14 @@ The pivot table will be rendered with colorful headers, alternating row colors, 
 Pipeline MUST have {"steps": [...]}. Example:
 {"steps": [{"action": "fill_data", "startRow": 1, "startColumn": 4, "values": [["=SUM(A2:D2)"]]}]}
 
-=== 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
-- You have a default budget of 40 iterations.
-- 6-RETRY LIMIT: If any column, script, or formula fails or requires multiple fixes, you are allowed MAXIMUM 5-6 attempts on that specific column/problem.
-- NEVER GET STUCK: If an issue on one column is stubborn, IMMEDIATELY MOVE ON to clean the next dirty columns in the sheet.
-- After 6 attempts on a single target, the circuit breaker will permanently lock that target and force you to move on.
-- When all other workable columns are cleaned, call `task_complete`.
+=== 3-STRIKE CIRCUIT BREAKER & OVERRIDE PROTOCOL ===
+- You have a default budget of 40 iterations (up to 80 for large sheets).
+- 3-STRIKE BREAKER RULE:
+  * Strike 1 (Warning 1/3): Triggers when a problem takes multiple attempts. You have 2 retry/skip chances remaining.
+  * Strike 2 (Warning 2/3): Second warning! 1 final retry remaining.
+  * AI OVERRIDE: If you believe you can fix this problem with a specific concrete strategy, set `can_fix: true` in your tool arguments to stop/pause the breaker!
+  * Strike 3 (Hard Lockout): After 3 breaker strikes on the same problem, that target is PERMANENTLY LOCKED. You MUST autonomously move forward ("khud aage badho") and clean other dirty columns in the sheet or call `task_complete`.
+- NEVER get stuck on one stubborn column. Keep progressing through the whole workbook!
 """;
 
 
@@ -1412,15 +1427,21 @@ Pipeline MUST have {"steps": [...]}. Example:
   static final List<Map<String, dynamic>> _persistentMemoryHistory = [];
   static String? _activeSheetId;
   static bool _isCancelled = false;
+  static String? _waitingQuestionName;
+  static Map<String, dynamic>? _waitingQuestionArgs;
 
   static void cancelLoop() {
     _isCancelled = true;
+    _waitingQuestionName = null;
+    _waitingQuestionArgs = null;
     debugPrint("[CopilotAgent] Loop cancellation requested.");
   }
 
   static void clearMemory() {
     _persistentMemoryHistory.clear();
     _activeSheetId = null;
+    _waitingQuestionName = null;
+    _waitingQuestionArgs = null;
     NativeEngine.clearGrid();
     debugPrint("[CopilotAgent] Persistent memory & native grid cleared.");
   }
@@ -1453,8 +1474,14 @@ Pipeline MUST have {"steps": [...]}. Example:
           if (val.startsWith('=')) {
             NativeEngine.setCellFormula(cellRef, val);
           } else {
-            final num = double.tryParse(val);
-            if (num != null) {
+            final trimmed = val.trim();
+            final isLongOrSpecial = (trimmed.length >= 8 && RegExp(r'^\d+$').hasMatch(trimmed)) ||
+                (trimmed.length > 1 && trimmed.startsWith('0') && !trimmed.startsWith('0.')) ||
+                trimmed.contains('-') ||
+                trimmed.contains('/') ||
+                trimmed.contains(':');
+            final num = double.tryParse(trimmed);
+            if (num != null && !isLongOrSpecial) {
               NativeEngine.setCellConstant(cellRef, num);
             } else {
               NativeEngine.setCellConstantString(cellRef, val);
@@ -1553,12 +1580,43 @@ Pipeline MUST have {"steps": [...]}. Example:
 
     if (!memoryEnabled) {
       _persistentMemoryHistory.clear();
+      _waitingQuestionName = null;
+      _waitingQuestionArgs = null;
     }
 
-    _persistentMemoryHistory.add({
-      "role": "user",
-      "parts": [{"text": prompt}]
-    });
+    if (_waitingQuestionName != null) {
+      debugPrint("[CopilotAgent] Resuming with user answer for question: '$prompt'");
+      _persistentMemoryHistory.add({
+        "role": "model",
+        "parts": [
+          {
+            "functionCall": {
+              "name": _waitingQuestionName!,
+              "args": _waitingQuestionArgs ?? {},
+            }
+          }
+        ]
+      });
+      _persistentMemoryHistory.add({
+        "role": "user",
+        "parts": [
+          {
+            "functionResponse": {
+              "name": _waitingQuestionName!,
+              "response": {"name": _waitingQuestionName!, "content": {"status": "SUCCESS", "user_choice": prompt, "answer": prompt}}
+            }
+          },
+          {"text": "User selected/answered: \"$prompt\". Please proceed with this decision and continue cleaning the sheet."}
+        ]
+      });
+      _waitingQuestionName = null;
+      _waitingQuestionArgs = null;
+    } else {
+      _persistentMemoryHistory.add({
+        "role": "user",
+        "parts": [{"text": prompt}]
+      });
+    }
 
     debugPrint("[CopilotAgent] Starting agent loop (memoryEnabled=$memoryEnabled, continuous=$continuousLoopEnabled) for prompt: $prompt");
 
@@ -1583,8 +1641,9 @@ Pipeline MUST have {"steps": [...]}. Example:
     CopilotService.totalStepsNotifier.value = maxIterations;
     debugPrint("[CopilotAgent] Calculated maxIterations: $maxIterations (default: 40) for $colCount columns (maxCol: $maxColStr)");
 
-    // Target attempt tracker for Circuit Breaker (6-retry limit)
+    // Target attempt tracker for Circuit Breaker (3-strike progressive limit)
     final Map<String, int> targetAttempts = {};
+    final Map<String, int> breakerStrikes = {};
 
     String extractTargetKey(String toolName, Map<String, dynamic> toolArgs) {
       if (toolArgs.containsKey('column') || toolArgs.containsKey('column_letter')) {
@@ -1707,14 +1766,32 @@ Pipeline MUST have {"steps": [...]}. Example:
                                      name == 'task_complete';
 
             final targetKey = extractTargetKey(name, args);
+            final aiCanFix = args['can_fix'] == true ||
+                args['override_breaker'] == true ||
+                (args['fix_strategy'] != null && args['fix_strategy'].toString().isNotEmpty);
+
             final attempts = isInspectionTool ? 1 : ((targetAttempts[targetKey] ?? 0) + 1);
             if (!isInspectionTool) {
               targetAttempts[targetKey] = attempts;
             }
 
-            if (!isInspectionTool && attempts >= 6) {
-              debugPrint("[CopilotAgent/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing Gemini to move on.");
-              CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
+            int currentStrikes = breakerStrikes[targetKey] ?? 0;
+
+            // AI can stop/override breaker if it knows how to fix this problem
+            if (aiCanFix && currentStrikes < 3) {
+              debugPrint("[CopilotAgent/CircuitBreaker] AI requested override on '$targetKey' (can_fix=true). Allowing fix attempt.");
+              CopilotService.addActionLog('Breaker Paused', 'AI applied targeted fix strategy for $targetKey.');
+              currentStrikes = (currentStrikes - 1).clamp(0, 2);
+              breakerStrikes[targetKey] = currentStrikes;
+            } else if (!isInspectionTool && attempts >= 3) {
+              // Progressive strikes: Strike 1 at 3 attempts, Strike 2 at 5 attempts, Strike 3 at 7+ attempts
+              currentStrikes = ((attempts - 1) ~/ 2).clamp(1, 3);
+              breakerStrikes[targetKey] = currentStrikes;
+            }
+
+            if (!isInspectionTool && currentStrikes >= 3) {
+              debugPrint("[CopilotAgent/CircuitBreaker] Target '$targetKey' reached 3 breaker strikes! Locking and forcing Gemini to move forward.");
+              CopilotService.addActionLog('Circuit Breaker (3/3)', 'Permanently skipped $targetKey (3 strikes reached) ➔ Moving forward.');
               userParts.add({
                 "functionResponse": {
                   "name": name,
@@ -1722,7 +1799,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                     "name": name,
                     "content": {
                       "status": "BLOCKED_CIRCUIT_BREAKER",
-                      "warning": "CIRCUIT BREAKER TRIGGERED: You have attempted to modify or inspect '$targetKey' 6 times without completing the sheet. Further actions on '$targetKey' are now LOCKED. You MUST immediately move on to clean OTHER dirty columns in the sheet (e.g. check other columns A to Z) or call 'task_complete' if other columns are done. DO NOT attempt to touch '$targetKey' again!"
+                      "warning": "CIRCUIT BREAKER LOCKOUT (3/3): Target '$targetKey' has reached 3 breaker strikes. Further modifications to '$targetKey' are now PERMANENTLY LOCKED. You MUST autonomously move forward now ('aage badho') to clean OTHER remaining columns in the sheet or call 'task_complete' if other columns are done!"
                     }
                   }
                 }
@@ -2262,6 +2339,9 @@ Pipeline MUST have {"steps": [...]}. Example:
               CopilotService.updateStatus(AgentStatus.waiting);
               CopilotService.addActionLog('Asked Question', question);
               debugPrint("[CopilotAgent] ask_user_question: question=$question, options=$options");
+
+              _waitingQuestionName = name;
+              _waitingQuestionArgs = args;
 
               return CopilotResponse(
                 success: true,

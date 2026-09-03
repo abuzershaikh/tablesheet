@@ -888,7 +888,6 @@ class GridWidgetState extends State<GridWidget> {
     try {
       NativeEngine.initialize();
       resultJson = _recalculateAllTask(snapshot);
-      debugPrint('[GridWidget] Native calculateAll JSON: $resultJson');
     } catch (e) {
       debugPrint('Engine recalculation failed: $e');
     }

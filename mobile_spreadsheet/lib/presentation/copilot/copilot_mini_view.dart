@@ -14,6 +14,7 @@ import 'package:mobile_spreadsheet/domain/services/copilot/copilot_service.dart'
 import 'package:mobile_spreadsheet/domain/services/copilot/copilot_session_service.dart';
 import 'package:mobile_spreadsheet/presentation/settings/agent_settings_screen.dart';
 import 'copilot_chat_screen.dart';
+import 'widgets/copilot_question_card.dart';
 
 typedef CopilotChatMessage = CopilotSessionMessage;
 
@@ -919,70 +920,21 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
                 ),
               ),
             ],
-            if (msg.aiResponse?.questionPayload != null) ...[
-
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.help_outline_rounded, color: Colors.cyanAccent, size: 12),
-                        SizedBox(width: 4),
-                        Text(
-                          'Select an Option:',
-                          style: TextStyle(color: Colors.cyanAccent, fontSize: 9.5, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: msg.aiResponse!.questionPayload!.options.map((opt) {
-                        final isDefault = opt == msg.aiResponse!.questionPayload!.defaultOption;
-                        return InkWell(
-                          onTap: () => _handleSubmitted(opt),
-                          borderRadius: BorderRadius.circular(4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: isDefault ? Colors.cyan[900] : const Color(0xFF0F172A),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: isDefault ? Colors.cyanAccent : Colors.white24),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isDefault) ...[
-                                  const Icon(Icons.star_rounded, size: 10, color: Colors.amberAccent),
-                                  const SizedBox(width: 2),
-                                ],
-                                Text(
-                                  opt,
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: isDefault ? Colors.cyanAccent : Colors.white,
-                                    fontWeight: isDefault ? FontWeight.bold : FontWeight.normal,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
+            if (msg.aiResponse?.questionPayload != null)
+              CopilotQuestionCard(
+                questionPayload: msg.aiResponse!.questionPayload!,
+                currentAnswer: msg.userAnswer,
+                isDarkMode: true,
+                onAnswerSubmitted: (answer) {
+                  setState(() {
+                    final idx = _messages.indexOf(msg);
+                    if (idx != -1) {
+                      _messages[idx] = msg.copyWith(userAnswer: answer);
+                    }
+                  });
+                  _handleSubmitted(answer);
+                },
               ),
-            ],
           ],
         );
 

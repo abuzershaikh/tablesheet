@@ -13,20 +13,23 @@ class CopilotChatMessage {
   final String text;
   final CopilotResponse? aiResponse;
   final bool isExecuted;
+  final String? userAnswer;
 
   CopilotChatMessage({
     required this.sender,
     required this.text,
     this.aiResponse,
     this.isExecuted = false,
+    this.userAnswer,
   });
 
-  CopilotChatMessage copyWith({bool? isExecuted}) {
+  CopilotChatMessage copyWith({bool? isExecuted, String? userAnswer}) {
     return CopilotChatMessage(
       sender: sender,
       text: text,
       aiResponse: aiResponse,
       isExecuted: isExecuted ?? this.isExecuted,
+      userAnswer: userAnswer ?? this.userAnswer,
     );
   }
 }

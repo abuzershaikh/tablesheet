@@ -28,6 +28,12 @@ void GridManager::setCellConstantString(const std::string& cellRef, const std::s
     std::lock_guard<std::recursive_mutex> lock(gridMutex);
     std::string trimmed = value;
     while (!trimmed.empty() && std::isspace((unsigned char)trimmed.front())) trimmed.erase(0, 1);
+    while (!trimmed.empty() && std::isspace((unsigned char)trimmed.back())) trimmed.pop_back();
+
+    if (trimmed.empty()) {
+        grid.erase(cellRef);
+        return;
+    }
 
     if (!trimmed.empty() && trimmed[0] == '=') {
         setCellFormula(cellRef, trimmed);
@@ -248,9 +254,17 @@ std::string GridManager::getRawGrid() {
         std::string rawVal;
         if (pair.second.isConstant) {
             if (pair.second.constantStr.empty()) {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%g", pair.second.constantNum);
-                rawVal = buf;
+                double val = pair.second.constantNum;
+                if (std::floor(val) == val && !std::isinf(val) && !std::isnan(val) && std::abs(val) < 1e16) {
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "%.0f", val);
+                    rawVal = buf;
+                } else {
+                    std::string s = std::to_string(val);
+                    s.erase(s.find_last_not_of('0') + 1, std::string::npos);
+                    if (!s.empty() && s.back() == '.') s.pop_back();
+                    rawVal = s;
+                }
             } else {
                 rawVal = pair.second.constantStr;
             }
