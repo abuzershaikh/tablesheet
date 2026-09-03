@@ -1227,11 +1227,23 @@ Pipeline MUST have {"steps": [...]}. Example:
 
             debugPrint("[CopilotAgent] Function call: $name");
 
-            final targetKey = extractTargetKey(name, args);
-            final attempts = (targetAttempts[targetKey] ?? 0) + 1;
-            targetAttempts[targetKey] = attempts;
+            final isInspectionTool = name == 'batch_read_rows' ||
+                                     name == 'inspect_sheet' ||
+                                     name == 'get_sheet_headers' ||
+                                     name == 'understand_sheet' ||
+                                     name == 'analyze_column' ||
+                                     name == 'summarize_sheet' ||
+                                     name == 'analyze_email' ||
+                                     name == 'find_clusters' ||
+                                     name == 'task_complete';
 
-            if (attempts >= 6 && name != 'task_complete' && name != 'understand_sheet') {
+            final targetKey = extractTargetKey(name, args);
+            final attempts = isInspectionTool ? 1 : ((targetAttempts[targetKey] ?? 0) + 1);
+            if (!isInspectionTool) {
+              targetAttempts[targetKey] = attempts;
+            }
+
+            if (!isInspectionTool && attempts >= 6) {
               debugPrint("[CopilotAgent/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing Gemini to move on.");
               CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
               userParts.add({

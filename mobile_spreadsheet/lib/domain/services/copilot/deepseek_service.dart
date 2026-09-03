@@ -412,11 +412,23 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
             debugPrint("[DeepSeekService] Tool Call: $name, args: $args");
             dynamic toolResult;
 
-            final targetKey = extractTargetKey(name, args);
-            final attempts = (targetAttempts[targetKey] ?? 0) + 1;
-            targetAttempts[targetKey] = attempts;
+            final isInspectionTool = name == 'batch_read_rows' ||
+                                     name == 'inspect_sheet' ||
+                                     name == 'get_sheet_headers' ||
+                                     name == 'understand_sheet' ||
+                                     name == 'analyze_column' ||
+                                     name == 'summarize_sheet' ||
+                                     name == 'analyze_email' ||
+                                     name == 'find_clusters' ||
+                                     name == 'task_complete';
 
-            if (attempts >= 6 && name != 'task_complete' && name != 'understand_sheet') {
+            final targetKey = extractTargetKey(name, args);
+            final attempts = isInspectionTool ? 1 : ((targetAttempts[targetKey] ?? 0) + 1);
+            if (!isInspectionTool) {
+              targetAttempts[targetKey] = attempts;
+            }
+
+            if (!isInspectionTool && attempts >= 6) {
               debugPrint("[DeepSeekService/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing AI to move on.");
               CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
               toolResult = {
@@ -499,7 +511,11 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 CopilotService.updateStatus(AgentStatus.researching);
                 CopilotService.addActionLog('Summarized Sheet', 'Generated sheet overview');
                 final resStr = NativeEngine.summarizeSheet();
-                toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
+                try {
+                  toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
+                } catch (_) {
+                  toolResult = {"summary": resStr};
+                }
               } else if (name == 'analyze_email') {
                 final rawEmail = args['email']?.toString() ?? '';
                 CopilotService.updateStatus(AgentStatus.researching);
