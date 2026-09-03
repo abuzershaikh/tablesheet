@@ -274,7 +274,23 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
 
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
-    int maxIterations = supportsTools ? 25 : 1;
+
+    // Dynamically scale iterations based on column count: 8 base + 2 per column (min 15, max 45)
+    int colCount = 1;
+    final maxColStr = (initialGrid['max_column_letter'] ?? 'A').toString().toUpperCase();
+    if (maxColStr.isNotEmpty) {
+      colCount = 0;
+      for (int c = 0; c < maxColStr.length; c++) {
+        final code = maxColStr.codeUnitAt(c);
+        if (code >= 65 && code <= 90) {
+          colCount = colCount * 26 + (code - 64);
+        }
+      }
+    }
+    final dynamicIterations = (8 + (colCount * 2)).clamp(15, 45);
+    int maxIterations = supportsTools ? dynamicIterations : 1;
+    CopilotService.totalStepsNotifier.value = maxIterations;
+    debugPrint("[DeepSeekService] Calculated dynamic maxIterations: $maxIterations for $colCount columns (maxCol: $maxColStr)");
 
     for (int i = 0; i < maxIterations; i++) {
       if (_isCancelled) {

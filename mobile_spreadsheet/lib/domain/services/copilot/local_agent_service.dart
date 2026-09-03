@@ -1089,9 +1089,23 @@ Pipeline MUST have {"steps": [...]}. Example:
 
     debugPrint("[CopilotAgent] Starting agent loop (memoryEnabled=$memoryEnabled, continuous=$continuousLoopEnabled) for prompt: $prompt");
 
-    // Increase max iterations for autonomous loop
-    int maxIterations = continuousLoopEnabled ? 25 : 5;
+    // Dynamically scale iterations based on column count: 8 base + 2 per column (min 15, max 45)
+    final initialGrid = await executeInspectSheet();
+    int colCount = 1;
+    final maxColStr = (initialGrid['max_column_letter'] ?? 'A').toString().toUpperCase();
+    if (maxColStr.isNotEmpty) {
+      colCount = 0;
+      for (int c = 0; c < maxColStr.length; c++) {
+        final code = maxColStr.codeUnitAt(c);
+        if (code >= 65 && code <= 90) {
+          colCount = colCount * 26 + (code - 64);
+        }
+      }
+    }
+    final dynamicIterations = (8 + (colCount * 2)).clamp(15, 45);
+    int maxIterations = continuousLoopEnabled ? dynamicIterations : 5;
     CopilotService.totalStepsNotifier.value = maxIterations;
+    debugPrint("[CopilotAgent] Calculated dynamic maxIterations: $maxIterations for $colCount columns (maxCol: $maxColStr)");
 
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
