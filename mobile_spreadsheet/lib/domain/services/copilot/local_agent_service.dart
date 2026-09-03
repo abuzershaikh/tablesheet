@@ -1230,7 +1230,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                 }
               });
             } else if (name == 'analyze_column') {
-              final colLetter = args['column_letter']?.toString() ?? 'A';
+              final colLetter = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
               CopilotService.updateStatus(AgentStatus.researching);
               CopilotService.addActionLog('Analyzed Column', 'Inspected Column $colLetter data quality');
               debugPrint("[CopilotAgent] analyze_column: col=$colLetter");
@@ -1253,7 +1253,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                       "response": {"name": name, "content": jsonDecode(resultJson.isNotEmpty ? resultJson : '{}')}
                     }});
             } else if (name == 'clean_column') {
-              final colLetter = args['column_letter']?.toString() ?? 'A';
+              final colLetter = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
               CopilotService.updateStatus(AgentStatus.executing);
               CopilotService.addActionLog('Cleaned Column', 'Applied data cleaner on Column $colLetter');
               debugPrint("[CopilotAgent] clean_column: col=$colLetter");
@@ -1288,7 +1288,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                 }
               });
             } else if (name == 'demix_column_entities') {
-              final colLetter = args['column']?.toString() ?? 'A';
+              final colLetter = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
               CopilotService.updateStatus(AgentStatus.executing);
               CopilotService.addActionLog('De-mixed Entities', 'Extracted Name, Phone, Email, GSTIN, Amount from Column $colLetter');
               debugPrint("[CopilotAgent] demix_column_entities executing for Column $colLetter...");
@@ -1572,8 +1572,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                       "response": {"name": name, "content": exportRes.toJson()}
                     }});
             } else if (name == 'find_clusters') {
-
-              final colLetter = args['column_letter']?.toString() ?? 'A';
+              final colLetter = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
               final threshold = (args['threshold'] as num?)?.toDouble() ?? 0.85;
               CopilotService.updateStatus(AgentStatus.researching);
               CopilotService.addActionLog('Fuzzy Clustered', 'Found similar groups in Column $colLetter');

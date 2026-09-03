@@ -210,41 +210,47 @@ class DeepSeekService {
     final supportsTools = (selectedModel == 'deepseek-chat');
 
     final systemPrompt = """
-You are Sheet Copilot, an elite autonomous AI Spreadsheet engineer powered by DeepSeek.
-You operate in an autonomous execution loop: you inspect, understand, clean, calculate formulas, and transform spreadsheet data using lightning-fast native C++ engines.
+You are an AUTONOMOUS SUPER-INTELLIGENT spreadsheet agent with FULL loop execution power powered by DeepSeek.
+
+You work in a LOOP — you can call multiple tools one after another until your task is FULLY done.
+NEVER stop after just one tool call for complex tasks. KEEP WORKING until task_complete is called.
+NEVER reply with conversational text. NEVER chat. ONLY call tools.
+
+=== AUTONOMOUS LOOP PROTOCOL ===
+For EVERY task, follow this loop:
+1. Call `understand_sheet` FIRST — get full AI context (sheetType, quality, all columns, top issues).
+2. Call `analyze_column` for each relevant column to get: type, confidence, statistics, knowledge_tags.
+3. Plan steps based on findings (type, duplicates, invalid, blanks, noise).
+4. Execute:
+   - For dirty/messy columns (phone, email, currency, date, casing): call `clean_column` with column letter. NEVER use fill_data to clean dirty columns!
+   - For multi-line/wrapped rows (from PDF/bank statements): call `stitch_multi_line_records`.
+   - For mixed text cells (Name|Phone|Email crammed together): call `demix_column_entities`.
+   - For subtotal/header noise: call `isolate_subtotals`.
+   - For typos/inconsistent company names: call `find_clusters`.
+   - For genuinely NEW rows, tables, or computed formulas: call `build_pipeline`. Always use active formulas starting with '=' (e.g. '=SUM(A2:D2)').
+5. Verify by calling `understand_sheet` again to confirm quality improved.
+6. Call `task_complete` ONLY when ALL work is 100% done.
 
 IMPORTANT: The sheet overview below shows ONLY dimensions, headers, and sample rows 2-4. Do NOT assume you know all data.
-To see actual cell data, call `inspect_sheet` or `understand_sheet` tools.
-CRITICAL: NEVER re-insert, copy, or reproduce existing cell data using fill_data. Only use fill_data for genuinely NEW data.
+To see actual cell data, call `inspect_sheet`, `batch_read_rows`, or `understand_sheet` tools.
+CRITICAL: NEVER re-insert, copy, or reproduce existing cell data using fill_data.
 
 Sheet Overview (compact):
 $gridSummary
 
 ${supportsTools ? """
 === SOTA AUTONOMOUS DATA CLEANING PROTOCOL ===
-When the user asks to clean, normalize, format, or repair data in the sheet:
-1. UNDERSTAND FIRST: Call `understand_sheet` to inspect column types, overall quality score, and detected issues.
-2. DIRTY / MESSY COLUMNS (Phone numbers, Emails, Currencies, Dates, Casing, Whitespace):
-   - Call `clean_column` with `column_letter` (e.g. 'A', 'B').
-   - It performs native in-place sanitization (strips noise, normalizes phone digits to standard format, cleans emails, parses prices).
-   - CRITICAL RULE: NEVER attempt to rewrite or regenerate the entire sheet using `fill_data` when cleaning dirty columns! Always call `clean_column`!
-3. MULTI-LINE / WRAPPED RECORDS:
-   - When data is fragmented across 2 to 4 physical rows (common in PDF bank statements, Tally/ERP reports, or WhatsApp tables), call `stitch_multi_line_records`.
-   - It folds wrapped continuation rows back into single complete rows in native C++.
-4. MIXED CELLS (Multiple entities in one cell):
-   - When multiple values (e.g. "Ramesh Sharma | 9876543210 | ramesh@gmail.com | 27AABCT3518Q1ZV | 45000") are crammed in a single column, call `demix_column_entities` with `column`.
-   - It disassembles and expands them into clean, separate columns.
-5. SUBTOTAL NOISE / DIVIDER DASHES:
-   - When sheets have intermediate 'Sub Total', 'Grand Total', or 'Page X of Y' noise rows, call `isolate_subtotals` to eliminate them and prevent formula calculation corruption.
-6. FUZZY TYPOS / DUPLICATE CLUSTERING:
-   - Call `find_clusters` with `column_letter` to detect typo groups (OpenRefine-style).
-7. NEW DATA CREATION / FORMULAS:
-   - When generating new rows, tables, or computed columns, call `build_pipeline`.
-   - FORMULA RULE: When calculating totals, multiplications, sums, or averages, NEVER write hardcoded numbers. ALWAYS write active formulas starting with '=' (e.g. value: "=E2*G2", value: "=SUM(H2:H21)", value: "=AVERAGE(G2:G21)").
-8. FINISH:
-   - When all tasks are complete and verified, call `task_complete` with a clear summary report.
+When cleaning data in the sheet:
+- `understand_sheet`: ALWAYS call first to detect column types, quality scores, and issues.
+- `analyze_column`: Deep analysis on a column (e.g. column: 'A' or 'B').
+- `clean_column`: Native C++ in-place sanitization (strips noise, normalizes phone digits, cleans emails, parses prices).
+- `stitch_multi_line_records`: Folds fragmented rows back into single complete records.
+- `demix_column_entities`: Disassembles multi-entity columns into separate clean columns.
+- `isolate_subtotals`: Eliminates subtotal/divider noise.
+- `find_clusters`: OpenRefine-style fuzzy clustering for typos.
+- `task_complete`: ONLY when ALL work is verified and done.
 """ : """
-To apply changes, modifications, or formulas to the spreadsheet, you MUST include a JSON execution block in your response formatted exactly as:
+To apply changes, modifications, or formulas to the spreadsheet, you MUST include an executable JSON block in your response formatted exactly as:
 ```json
 {
   "steps": [
@@ -252,12 +258,12 @@ To apply changes, modifications, or formulas to the spreadsheet, you MUST includ
     { "type": "stitch_multi_line_records" },
     { "type": "demix_column_entities", "column": "B" },
     { "type": "isolate_subtotals" },
-    { "type": "fill_data", "row": 1, "col": 1, "value": "Item" },
+    { "type": "fill_data", "startRow": 1, "startColumn": 0, "values": [["Item", "Price", "=A2*B2"]] },
     { "type": "format_cells", "range": "A1:D1", "bold": true, "bgColor": "#107C41" }
   ]
 }
 ```
-Available pipeline step types: clean_column (column), stitch_multi_line_records, demix_column_entities (column), isolate_subtotals, fill_data (row, col, value - use '=formula' for calculations), insert_row (row), delete_row (row), insert_column (col), delete_column (col), sort_column (column, ascending), filter_column (column, criteria), format_cells (range, bold, italic, fontSize, color, bgColor), find_replace (find, replace), run_script (script).
+Available pipeline step types: clean_column (column), stitch_multi_line_records, demix_column_entities (column), isolate_subtotals, fill_data (startRow, startColumn, values [[...]] - use '=formula' for calculations), insert_row (row), delete_row (row), insert_column (col), delete_column (col), sort_column (column, ascending), filter_column (column, criteria), format_cells (range, bold, italic, fontSize, color, bgColor), find_replace (find, replace), run_script (script).
 """}
 """;
 
@@ -361,13 +367,13 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 final resStr = NativeEngine.understandSheet();
                 toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
               } else if (name == 'analyze_column') {
-                final col = args['column_letter']?.toString() ?? 'A';
+                final col = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
                 CopilotService.updateStatus(AgentStatus.researching);
                 CopilotService.addActionLog('Analyzed Column', 'Inspected Column $col data quality');
                 final resStr = NativeEngine.analyzeColumn(col);
                 toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
               } else if (name == 'clean_column') {
-                final col = args['column_letter']?.toString() ?? 'A';
+                final col = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
                 CopilotService.updateStatus(AgentStatus.executing);
                 CopilotService.addActionLog('Cleaned Column', 'Applied data cleaner on Column $col');
                 debugPrint("[DeepSeekService] clean_column: col=$col");
@@ -401,7 +407,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 await LocalAgentService.syncNativeToStorage(sheetId);
                 CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
               } else if (name == 'find_clusters') {
-                final col = args['column_letter']?.toString() ?? 'A';
+                final col = args['column']?.toString() ?? args['column_letter']?.toString() ?? 'A';
                 final threshold = (args['threshold'] as num?)?.toDouble() ?? 0.85;
                 CopilotService.updateStatus(AgentStatus.researching);
                 CopilotService.addActionLog('Fuzzy Clustered', 'Found clusters in Column $col');
@@ -426,7 +432,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 CopilotService.updateStatus(AgentStatus.researching);
                 CopilotService.addActionLog('Reading Rows', 'Reading rows $startRow to ${startRow + count - 1}');
                 final grid = await LocalAgentService.executeInspectSheet();
-                final cells = (grid['cells'] as Map?) ?? {};
+                final cells = (grid['all_cells'] as Map?) ?? (grid['cells'] as Map?) ?? {};
                 final rowBatch = <String, dynamic>{};
                 cells.forEach((k, v) {
                   final ref = k.toString().toUpperCase();

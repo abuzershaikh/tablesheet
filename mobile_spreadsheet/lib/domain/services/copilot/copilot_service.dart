@@ -197,6 +197,44 @@ class CopilotService {
             step['column'] = step['column_letter'];
           }
 
+          // Normalize fill_data schema (support row/col/value, cell/value, and startRow/startColumn/values)
+          if (step['type'] == 'fill_data') {
+            int startRow = 0;
+            if (step.containsKey('startRow')) {
+              startRow = (step['startRow'] as num).toInt();
+            } else if (step.containsKey('row')) {
+              final r = (step['row'] as num).toInt();
+              startRow = r > 0 ? r - 1 : 0; // Convert 1-indexed to 0-indexed
+            }
+            step['startRow'] = startRow;
+
+            int startCol = 0;
+            if (step.containsKey('startColumn')) {
+              startCol = (step['startColumn'] as num).toInt();
+            } else if (step.containsKey('col') || step.containsKey('column')) {
+              final c = step['col'] ?? step['column'];
+              if (c is num) {
+                startCol = c.toInt() > 0 ? c.toInt() - 1 : 0; // Convert 1-indexed to 0-indexed
+              } else if (c is String) {
+                final colStr = c.trim().toUpperCase();
+                int idx = 0;
+                for (int i = 0; i < colStr.length; i++) {
+                  idx = idx * 26 + (colStr.codeUnitAt(i) - 64);
+                }
+                startCol = idx > 0 ? idx - 1 : 0;
+              }
+            }
+            step['startColumn'] = startCol;
+
+            if (!step.containsKey('values') || step['values'] == null) {
+              if (step.containsKey('value')) {
+                step['values'] = [
+                  [step['value']?.toString() ?? '']
+                ];
+              }
+            }
+          }
+
           // Normalize run_script
           if (step['type'] == 'run_script' || step['type'] == 'script' || step['type'] == 'javascript') {
             step['type'] = 'run_script';
