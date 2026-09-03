@@ -256,7 +256,19 @@ When cleaning data in the sheet:
   "Yeh sheet Tally / ERP ya Accounting export lag rahi hai jisme nested rows hain. Kya main parent values ko neeche fill down kar doon?"
   options: ["Yes, Fill Down (Tally/ERP)", "No, Keep Rows Blank"]
   ONLY call `guarded_fill_down` if the user selects "Yes"!
+- `list_workbook_sheets`: Lists all sheet tabs in this workbook.
+- `read_sheet_tab`: Reads instructions or data from ANY other sheet tab (e.g. 'Sheet 2', 'Instructions').
+- `write_to_sheet_tab`: Writes or updates data in another sheet tab.
 - `task_complete`: ONLY when ALL work is verified and done.
+
+=== MULTI-SHEET WORKBOOK PROTOCOL ===
+- This workbook can contain multiple sheet tabs (e.g. Sheet 1, Sheet 2, Instructions, Summary, etc.).
+- `list_workbook_sheets`: Call to discover all available sheet tabs in the workbook.
+- `read_sheet_tab(sheet_name_or_id)`: Call to read instructions or cell data from ANY other sheet tab (e.g. 'Sheet 2', 'Sheet2', 'Instructions').
+  * CRITICAL: If the user refers to another sheet tab (e.g. "second sheet me instruction hai usko read kar", "read instructions in sheet 2", "follow sheet 2 instructions", "second sheet se data lo"):
+    YOU MUST CALL `read_sheet_tab(sheet_name_or_id: 'Sheet 2')` FIRST!
+    Read the returned `readable_instructions` and cells thoroughly, understand what tasks are instructed, and then execute those tasks on the active sheet!
+- `write_to_sheet_tab(sheet_name_or_id, cells)`: Call to write or copy data into another sheet tab.
 
 === 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
 - You have a default budget of 40 iterations. You have plenty of time.
@@ -589,6 +601,22 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                   "count": count,
                   "batch_cells": rowBatch,
                 };
+              } else if (name == 'list_workbook_sheets') {
+                CopilotService.updateStatus(AgentStatus.researching);
+                CopilotService.addActionLog('Listed Sheets', 'Discovered workbook sheet tabs');
+                toolResult = await LocalAgentService.executeListWorkbookSheets(sheetId);
+              } else if (name == 'read_sheet_tab') {
+                final target = args['sheet_name_or_id']?.toString() ?? 'Sheet 2';
+                final maxR = (args['max_rows'] as num?)?.toInt() ?? 60;
+                CopilotService.updateStatus(AgentStatus.researching);
+                CopilotService.addActionLog('Read Sheet Tab', 'Reading instructions/data from $target');
+                toolResult = await LocalAgentService.executeReadSheetTab(sheetNameOrId: target, activeSheetId: sheetId, maxRows: maxR);
+              } else if (name == 'write_to_sheet_tab') {
+                final target = args['sheet_name_or_id']?.toString() ?? 'Sheet 2';
+                final cells = Map<String, dynamic>.from(args['cells'] as Map? ?? {});
+                CopilotService.updateStatus(AgentStatus.executing);
+                CopilotService.addActionLog('Wrote Sheet Tab', 'Updated ${cells.length} cells in $target');
+                toolResult = await LocalAgentService.executeWriteToSheetTab(sheetNameOrId: target, cells: cells);
               } else if (name == 'group_data') {
                 final groupCol = args['group_by_column']?.toString() ?? 'A';
                 final valCol = args['value_column']?.toString() ?? 'B';

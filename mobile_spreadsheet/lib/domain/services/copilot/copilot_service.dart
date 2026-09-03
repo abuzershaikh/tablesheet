@@ -122,6 +122,20 @@ class CopilotService {
            s == AgentStatus.waiting;
   }
 
+  /// Tracks all sheets in the current open workbook
+  static List<Map<String, String>> currentWorkbookSheets = [];
+  static String? currentSpreadsheetId;
+
+  /// Update the current workbook context (sheets list and spreadsheet ID)
+  static void updateWorkbookContext({
+    required String spreadsheetId,
+    required List<Map<String, String>> sheets,
+  }) {
+    currentSpreadsheetId = spreadsheetId;
+    currentWorkbookSheets = List<Map<String, String>>.from(sheets);
+    debugPrint("[CopilotService] Workbook context updated: spreadsheetId=$spreadsheetId, sheetsCount=${sheets.length} (${sheets.map((s) => s['name']).join(', ')})");
+  }
+
   /// Notify listeners that the native grid was modified by the agent
   static void notifyGridChanged() {
     gridRefreshNotifier.value++;

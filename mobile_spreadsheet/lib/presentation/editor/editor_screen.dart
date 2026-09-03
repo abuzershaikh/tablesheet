@@ -444,6 +444,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       if (mounted && savedFormats.isNotEmpty) {
         setState(() => _formatMap = savedFormats);
       }
+
+      _syncCopilotWorkbookContext();
     });
   }
 
@@ -474,6 +476,17 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   void _onAgentGridRefresh() {
     if (!mounted) return;
     _gridKey.currentState?.syncFromNative();
+  }
+
+  /// Synchronize the list of workbook sheet tabs with CopilotService so AI is multi-sheet aware
+  void _syncCopilotWorkbookContext() {
+    try {
+      final sheets = context.read<EditorController>().spreadsheet?.sheets ?? widget.spreadsheet.sheets;
+      CopilotService.updateWorkbookContext(
+        spreadsheetId: widget.spreadsheet.spreadsheetId,
+        sheets: sheets.map((s) => {'id': s.sheetId, 'name': s.name}).toList(),
+      );
+    } catch (_) {}
   }
 
   @override
@@ -1233,6 +1246,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                             });
                             _gridKey.currentState?.loadNewData(newData);
                           }
+                          _syncCopilotWorkbookContext();
                         }
                       },
                       onAddSheet: () async {
@@ -1252,6 +1266,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           });
                           _gridKey.currentState?.loadNewData({});
                         }
+                        _syncCopilotWorkbookContext();
                       },
                       onRenameSheet: (index, newName) {
                         controller.renameSheet(index, newName);

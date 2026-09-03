@@ -276,6 +276,50 @@ class LocalAgentService {
           }
         },
         {
+          "name": "list_workbook_sheets",
+          "description": "Lists all sheet tabs in this workbook (e.g. Sheet 1, Sheet 2, Instructions, etc.) with their names, sheet IDs, and whether each is the active sheet. Call this tool whenever the user refers to other sheets or when you need to know what sheet tabs exist.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+          }
+        },
+        {
+          "name": "read_sheet_tab",
+          "description": "Reads instructions, headers, or cell data from ANY sheet tab in the workbook by its sheet name (e.g. 'Sheet 2', 'Sheet2', 'Instructions', 'Sheet 1') or sheet ID. Call this tool FIRST if the user asks you to read, follow instructions from, or check another sheet tab in the workbook.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "sheet_name_or_id": {
+                "type": "STRING",
+                "description": "The name or ID of the sheet tab to read (e.g. 'Sheet 2', 'Sheet2', 'Instructions', 'Sheet 1')"
+              },
+              "max_rows": {
+                "type": "INTEGER",
+                "description": "Maximum number of rows to read (default 60)"
+              }
+            },
+            "required": ["sheet_name_or_id"]
+          }
+        },
+        {
+          "name": "write_to_sheet_tab",
+          "description": "Writes or updates cell data in another sheet tab in the workbook by its name or ID. Call this if the user asks you to write results, copy data, or create records in another sheet tab.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "sheet_name_or_id": {
+                "type": "STRING",
+                "description": "The name or ID of the sheet tab to write to (e.g. 'Sheet 2', 'Summary')"
+              },
+              "cells": {
+                "type": "OBJECT",
+                "description": "Map of cell coordinates and values, e.g. {'A1': 'Total', 'B1': 500}"
+              }
+            },
+            "required": ["sheet_name_or_id", "cells"]
+          }
+        },
+        {
           "name": "find_clusters",
           "description": "OpenRefine-style fuzzy clustering. Finds groups of similar values in a column (Samsung/Samsng/SAMSUNG \u2192 cluster). Use for company names, city names, product names with typos or inconsistent casing. Returns: clusters [{canonical (most common form), variants[], avgSimilarity, algorithm}].",
           "parameters": {
@@ -771,7 +815,19 @@ For EVERY task, follow this loop:
   options: ["Yes, Fill Down (Tally/ERP)", "No, Keep Rows Blank"]
   ONLY call `guarded_fill_down` if the user selects "Yes"!
 - `summarize_sheet`: Full sheet JSON (older tool, use understand_sheet instead).
+- `list_workbook_sheets`: Lists all sheet tabs in this workbook.
+- `read_sheet_tab`: Reads instructions or data from ANY other sheet tab (e.g. 'Sheet 2', 'Instructions').
+- `write_to_sheet_tab`: Writes or updates data in another sheet tab.
 - `task_complete`: ONLY when ALL work is 100% done.
+
+=== MULTI-SHEET WORKBOOK PROTOCOL ===
+- This workbook can contain multiple sheet tabs (e.g. Sheet 1, Sheet 2, Instructions, Summary, etc.).
+- `list_workbook_sheets`: Call to discover all available sheet tabs in the workbook.
+- `read_sheet_tab(sheet_name_or_id)`: Call to read instructions or cell data from ANY other sheet tab (e.g. 'Sheet 2', 'Sheet2', 'Instructions').
+  * CRITICAL: If the user refers to another sheet tab (e.g. "second sheet me instruction hai usko read kar", "read instructions in sheet 2", "follow sheet 2 instructions", "second sheet se data lo"):
+    YOU MUST CALL `read_sheet_tab(sheet_name_or_id: 'Sheet 2')` FIRST!
+    Read the returned `readable_instructions` and cells thoroughly, understand what tasks are instructed, and then execute those tasks on the active sheet!
+- `write_to_sheet_tab(sheet_name_or_id, cells)`: Call to write or copy data into another sheet tab.
 
 === CRITICAL DATA PRESERVATION & SAFETY RULES ===
 1. NEVER DELETE, CLEAR, OR OVERWRITE COLUMNS OR ROWS UNLESS THE USER EXPLICITLY COMMANDS YOU TO DELETE OR CLEAR THEM.
@@ -1011,6 +1067,250 @@ Pipeline MUST have {"steps": [...]}. Example:
     } catch (e) {
       debugPrint("[CopilotAgent] _executeInspectSheet ERROR: $e");
       return {"error": e.toString()};
+    }
+  }
+
+  /// Lists all sheet tabs in the current workbook
+  static Future<Map<String, dynamic>> executeListWorkbookSheets(String activeSheetId) async {
+    final sheets = CopilotService.currentWorkbookSheets;
+    if (sheets.isEmpty) {
+      return {
+        "status": "success",
+        "total_sheets": 1,
+        "active_sheet_id": activeSheetId,
+        "sheets": [
+          {"name": "Sheet 1", "sheet_id": activeSheetId, "is_active": true}
+        ]
+      };
+    }
+
+    final list = sheets.map((s) {
+      final sId = s['id'] ?? s['sheetId'] ?? '';
+      final sName = s['name'] ?? 'Sheet';
+      final isActive = (sId == activeSheetId);
+      return {
+        "name": sName,
+        "sheet_id": sId,
+        "is_active": isActive,
+      };
+    }).toList();
+
+    return {
+      "status": "success",
+      "total_sheets": list.length,
+      "active_sheet_id": activeSheetId,
+      "sheets": list,
+      "summary": "Workbook contains ${list.length} sheet tabs: ${list.map((e) => e['name']).join(', ')}",
+    };
+  }
+
+  /// Reads instructions, headers, or data from ANY other sheet tab in the workbook
+  static Future<Map<String, dynamic>> executeReadSheetTab({
+    required String sheetNameOrId,
+    String? activeSheetId,
+    int maxRows = 60,
+  }) async {
+    try {
+      final query = sheetNameOrId.trim();
+      final sheets = CopilotService.currentWorkbookSheets;
+
+      // 1. Resolve target sheet ID & name
+      String? targetSheetId;
+      String targetSheetName = query;
+      bool isFirst = false;
+
+      for (int i = 0; i < sheets.length; i++) {
+        final s = sheets[i];
+        final id = s['id'] ?? s['sheetId'] ?? '';
+        final name = s['name'] ?? '';
+
+        if (id.toLowerCase() == query.toLowerCase() || name.toLowerCase() == query.toLowerCase()) {
+          targetSheetId = id;
+          targetSheetName = name;
+          isFirst = (i == 0);
+          break;
+        }
+
+        final cleanQuery = query.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+        final cleanName = name.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+        if (cleanName == cleanQuery || cleanName.contains(cleanQuery) || cleanQuery.contains(cleanName)) {
+          targetSheetId = id;
+          targetSheetName = name;
+          isFirst = (i == 0);
+          break;
+        }
+      }
+
+      // If not found yet, check numeric reference like "2" or "Sheet 2"
+      if (targetSheetId == null) {
+        final numMatch = RegExp(r'\b(?:sheet\s*)?(\d+)\b', caseSensitive: false).firstMatch(query);
+        if (numMatch != null) {
+          final idx = int.tryParse(numMatch.group(1)!) ?? 1;
+          if (idx > 0 && idx <= sheets.length) {
+            targetSheetId = sheets[idx - 1]['id'] ?? sheets[idx - 1]['sheetId'];
+            targetSheetName = sheets[idx - 1]['name'] ?? 'Sheet $idx';
+            isFirst = (idx == 1);
+          }
+        }
+      }
+
+      targetSheetId ??= query;
+
+      // 2. Load cell data from storage
+      final fallbackSpreadsheetId = (isFirst || targetSheetId == activeSheetId)
+          ? CopilotService.currentSpreadsheetId
+          : null;
+      final rawCells = await SheetDataStorage.loadCellData(
+        targetSheetId,
+        fallbackSpreadsheetId: fallbackSpreadsheetId,
+      );
+
+      if (rawCells == null || rawCells.isEmpty) {
+        return {
+          "status": "empty",
+          "sheet_name": targetSheetName,
+          "sheet_id": targetSheetId,
+          "message": "Sheet '$targetSheetName' has no saved cells or instructions yet.",
+          "cells": {},
+          "total_rows": 0,
+          "total_columns": 0,
+        };
+      }
+
+      // 3. Parse cell coordinates
+      final Map<String, String> cellMap = {};
+      final Map<int, Map<int, String>> rowColGrid = {};
+      int maxRowFound = 0;
+      int maxColFound = 0;
+
+      rawCells.forEach((key, val) {
+        int r = -1;
+        int c = -1;
+        String cellRef = key;
+
+        if (key.contains(':')) {
+          final parts = key.split(':');
+          if (parts.length == 2) {
+            r = int.tryParse(parts[0]) ?? -1;
+            c = int.tryParse(parts[1]) ?? -1;
+            if (r >= 0 && c >= 0) {
+              cellRef = FormulaUtils.cellRefFromCoords(r, c);
+            }
+          }
+        } else {
+          final coords = FormulaUtils.parseCellRef(key);
+          if (coords != null) {
+            r = coords.$1;
+            c = coords.$2;
+          }
+        }
+
+        if (r >= 0 && c >= 0) {
+          if (r < maxRows) {
+            rowColGrid.putIfAbsent(r, () => {})[c] = val;
+            cellMap[cellRef] = val;
+          }
+          if (r + 1 > maxRowFound) maxRowFound = r + 1;
+          if (c + 1 > maxColFound) maxColFound = c + 1;
+        }
+      });
+
+      // 4. Build readable instructions text
+      final List<String> readableLines = [];
+      final Map<String, String> headers = {};
+      final sortedRows = rowColGrid.keys.toList()..sort();
+
+      for (final r in sortedRows) {
+        final rowMap = rowColGrid[r]!;
+        final sortedCols = rowMap.keys.toList()..sort();
+        final rowItems = sortedCols.map((c) {
+          final ref = FormulaUtils.cellRefFromCoords(r, c);
+          final text = rowMap[c]!;
+          if (r == 0) {
+            final colLetter = ref.replaceAll(RegExp(r'\d+'), '');
+            headers[colLetter] = text;
+          }
+          return "$ref: \"$text\"";
+        }).join(" | ");
+
+        readableLines.add("Row ${r + 1}: $rowItems");
+      }
+
+      return {
+        "status": "success",
+        "sheet_name": targetSheetName,
+        "sheet_id": targetSheetId,
+        "total_rows": maxRowFound,
+        "total_columns": maxColFound,
+        "headers": headers,
+        "cells": cellMap,
+        "readable_instructions": readableLines.join("\n"),
+        "summary": "Read ${cellMap.length} cells from sheet tab '$targetSheetName' ($maxRowFound rows, $maxColFound columns).",
+      };
+    } catch (e) {
+      debugPrint("[CopilotAgent] executeReadSheetTab error: $e");
+      return {
+        "status": "error",
+        "error": "Failed to read sheet tab '$sheetNameOrId': $e",
+      };
+    }
+  }
+
+  /// Writes or updates cell data in another sheet tab in the workbook
+  static Future<Map<String, dynamic>> executeWriteToSheetTab({
+    required String sheetNameOrId,
+    required Map<String, dynamic> cells,
+  }) async {
+    try {
+      final query = sheetNameOrId.trim();
+      final sheets = CopilotService.currentWorkbookSheets;
+      String? targetSheetId;
+      String targetSheetName = query;
+
+      for (final s in sheets) {
+        final id = s['id'] ?? s['sheetId'] ?? '';
+        final name = s['name'] ?? '';
+        if (id.toLowerCase() == query.toLowerCase() || name.toLowerCase() == query.toLowerCase()) {
+          targetSheetId = id;
+          targetSheetName = name;
+          break;
+        }
+      }
+      targetSheetId ??= query;
+
+      final existing = await SheetDataStorage.loadCellData(targetSheetId) ?? {};
+      final updated = Map<String, String>.from(existing);
+
+      cells.forEach((k, v) {
+        final keyStr = k.toString();
+        final valStr = v.toString();
+        if (keyStr.contains(':')) {
+          updated[keyStr] = valStr;
+        } else {
+          final coords = FormulaUtils.parseCellRef(keyStr);
+          if (coords != null) {
+            updated['${coords.$1}:${coords.$2}'] = valStr;
+          } else {
+            updated[keyStr] = valStr;
+          }
+        }
+      });
+
+      await SheetDataStorage.saveCellData(targetSheetId, updated);
+      CopilotService.notifyGridChanged();
+
+      return {
+        "status": "success",
+        "sheet_name": targetSheetName,
+        "sheet_id": targetSheetId,
+        "updated_cell_count": cells.length,
+        "message": "Successfully wrote ${cells.length} cells to sheet '$targetSheetName'.",
+      };
+    } catch (e) {
+      return {
+        "status": "error",
+        "error": "Failed to write to sheet tab '$sheetNameOrId': $e",
+      };
     }
   }
 
@@ -1292,6 +1592,8 @@ Pipeline MUST have {"steps": [...]}. Example:
                                      name == 'inspect_sheet' ||
                                      name == 'get_sheet_headers' ||
                                      name == 'understand_sheet' ||
+                                     name == 'list_workbook_sheets' ||
+                                     name == 'read_sheet_tab' ||
                                      name == 'analyze_column' ||
                                      name == 'summarize_sheet' ||
                                      name == 'analyze_email' ||
@@ -1877,6 +2179,42 @@ Pipeline MUST have {"steps": [...]}. Example:
                       "name": name,
                       "response": {"name": name, "content": result}
                     }});
+            } else if (name == 'list_workbook_sheets') {
+              CopilotService.updateStatus(AgentStatus.researching);
+              CopilotService.addActionLog('Listed Sheets', 'Discovered workbook sheet tabs');
+              final result = await executeListWorkbookSheets(sheetId);
+              debugPrint("[CopilotAgent] list_workbook_sheets result: ${jsonEncode(result)}");
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": result}
+                }
+              });
+            } else if (name == 'read_sheet_tab') {
+              final target = args['sheet_name_or_id']?.toString() ?? 'Sheet 2';
+              final maxR = (args['max_rows'] as num?)?.toInt() ?? 60;
+              CopilotService.updateStatus(AgentStatus.researching);
+              CopilotService.addActionLog('Read Sheet Tab', 'Reading instructions/data from $target');
+              final result = await executeReadSheetTab(sheetNameOrId: target, activeSheetId: sheetId, maxRows: maxR);
+              debugPrint("[CopilotAgent] read_sheet_tab result for $target: summary=${result['summary']}");
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": result}
+                }
+              });
+            } else if (name == 'write_to_sheet_tab') {
+              final target = args['sheet_name_or_id']?.toString() ?? 'Sheet 2';
+              final cells = Map<String, dynamic>.from(args['cells'] as Map? ?? {});
+              CopilotService.updateStatus(AgentStatus.executing);
+              CopilotService.addActionLog('Wrote Sheet Tab', 'Updated ${cells.length} cells in $target');
+              final result = await executeWriteToSheetTab(sheetNameOrId: target, cells: cells);
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": result}
+                }
+              });
             } else {
               debugPrint("[CopilotAgent] Fallback for unhandled tool: $name");
               userParts.add({
