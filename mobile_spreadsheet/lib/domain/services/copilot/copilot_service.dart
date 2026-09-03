@@ -110,6 +110,23 @@ class CopilotService {
   static final ValueNotifier<int> totalStepsNotifier = ValueNotifier(1);
   static final ValueNotifier<Map<String, dynamic>?> pipelineNotifier = ValueNotifier(null);
 
+  /// Notifier that increments every time the AI agent modifies the native grid.
+  /// EditorScreen listens to this to refresh the sheet with live changes.
+  static final ValueNotifier<int> gridRefreshNotifier = ValueNotifier(0);
+
+  /// Whether the agent is currently running (not idle, paused, completed, or failed)
+  static bool get isAgentRunning {
+    final s = agentStatusNotifier.value;
+    return s == AgentStatus.thinking || s == AgentStatus.planning ||
+           s == AgentStatus.researching || s == AgentStatus.executing ||
+           s == AgentStatus.waiting;
+  }
+
+  /// Notify listeners that the native grid was modified by the agent
+  static void notifyGridChanged() {
+    gridRefreshNotifier.value++;
+  }
+
   static void updateStatus(AgentStatus status) {
     agentStatusNotifier.value = status;
   }

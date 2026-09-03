@@ -409,6 +409,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     
     _cellData = widget.spreadsheet.transientCellData ?? {};
     CopilotService.pipelineNotifier.addListener(_onCopilotPipelineTriggered);
+    CopilotService.gridRefreshNotifier.addListener(_onAgentGridRefresh);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final controller = context.read<EditorController>();
       controller.loadSpreadsheet(widget.spreadsheet);
@@ -452,17 +453,27 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     // Restore bottom navigation buttons when leaving sheet
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
     
+    // STOP the AI agent when leaving the workbook entirely
+    CopilotService.stopAgentLoop();
+
     // Clear C++ native grid and Copilot memory so it NEVER bleeds into the next spreadsheet
     NativeEngine.clearGrid();
     LocalAgentService.clearMemory();
     CopilotSessionService.instance.clearTab('task');
     CopilotService.clearActionLogs();
 
+    CopilotService.gridRefreshNotifier.removeListener(_onAgentGridRefresh);
     CopilotService.pipelineNotifier.removeListener(_onCopilotPipelineTriggered);
     context.read<EditorController>().removeListener(_onControllerChanged);
     _horizontalController.dispose();
     _verticalController.dispose();
     super.dispose();
+  }
+
+  /// Called whenever the AI agent modifies the native grid — refresh sheet live
+  void _onAgentGridRefresh() {
+    if (!mounted) return;
+    _gridKey.currentState?.syncFromNative();
   }
 
   @override
@@ -1211,9 +1222,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           controller.switchSheet(sheets[index]);
                           final fallbackId = index == 0 ? widget.spreadsheet.spreadsheetId : null;
                           final newData = await SheetDataStorage.loadCellData(sheets[index].sheetId, fallbackSpreadsheetId: fallbackId) ?? {};
-                          // Clear memory and native grid so previous tab data never bleeds
-                          LocalAgentService.clearMemory();
-                          NativeEngine.clearGrid();
+                          // Only clear memory if agent is NOT running — let it finish in background
+                          if (!CopilotService.isAgentRunning) {
+                            LocalAgentService.clearMemory();
+                            NativeEngine.clearGrid();
+                          }
                           if (mounted) {
                             setState(() {
                               _cellData = newData;
@@ -1228,9 +1241,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           await SheetDataStorage.saveCellData(currentSheet.sheetId, _cellData);
                         }
                         controller.addSheet('Sheet ${sheets.length + 1}');
-                        // Clear memory and native grid for the new empty sheet
-                        LocalAgentService.clearMemory();
-                        NativeEngine.clearGrid();
+                        // Only clear memory if agent is NOT running — let it finish in background
+                        if (!CopilotService.isAgentRunning) {
+                          LocalAgentService.clearMemory();
+                          NativeEngine.clearGrid();
+                        }
                         if (mounted) {
                           setState(() {
                             _cellData = {};

@@ -1112,6 +1112,7 @@ Pipeline MUST have {"steps": [...]}. Example:
           if (newCellData.isNotEmpty) {
             await SheetDataStorage.saveCellData(sheetId, newCellData);
             CopilotService.pipelineNotifier.value = {'action': 'sync', 'steps': []};
+            CopilotService.notifyGridChanged();
           }
         }
       }
