@@ -67,6 +67,7 @@ set(DATA_ENGINE_SOURCES
     data_engine/cleaning/row_aligner.cpp
     data_engine/cleaning/record_stitcher.cpp
     data_engine/cleaning/mixed_cell_demixer.cpp
+    data_engine/cleaning/name_from_email_cleaner.cpp
 
     # Column & Sheet Analyzer (data_engine/analyzer/)
     data_engine/analyzer/column_analyzer.cpp

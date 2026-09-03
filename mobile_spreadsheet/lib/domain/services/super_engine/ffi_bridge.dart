@@ -187,6 +187,13 @@ typedef _DemixColumnDart = Pointer<Utf8> Function(Pointer<Utf8> colLetter);
 typedef _IsolateSubtotalsC = Pointer<Utf8> Function();
 typedef _IsolateSubtotalsDart = Pointer<Utf8> Function();
 
+// Name from Email Imputation Engine
+typedef _ExtractNamesFromEmailsC = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
+typedef _ExtractNamesFromEmailsDart = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
+
+typedef _ImputeNamesFromEmailsC = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
+typedef _ImputeNamesFromEmailsDart = Pointer<Utf8> Function(Pointer<Utf8> nameCol, Pointer<Utf8> emailCol);
+
 
 String _calculateAllTask(void _) {
   NativeEngine.initialize();
@@ -357,6 +364,8 @@ class NativeEngine {
     _stitchRecords   = _lib.lookup<NativeFunction<_StitchRecordsC>>('stitch_multi_line_records_ffi').asFunction();
     _demixColumn     = _lib.lookup<NativeFunction<_DemixColumnC>>('demix_column_entities_ffi').asFunction();
     _isolateSubtotals = _lib.lookup<NativeFunction<_IsolateSubtotalsC>>('isolate_subtotals_and_clean_ffi').asFunction();
+    _extractNamesFromEmails = _lib.lookup<NativeFunction<_ExtractNamesFromEmailsC>>('native_extractNamesFromEmails').asFunction();
+    _imputeNamesFromEmails  = _lib.lookup<NativeFunction<_ImputeNamesFromEmailsC>>('native_imputeNamesFromEmails').asFunction();
 
 
     _initComputeEngine();
@@ -972,6 +981,8 @@ class NativeEngine {
   static late final _StitchRecordsDart _stitchRecords;
   static late final _DemixColumnDart _demixColumn;
   static late final _IsolateSubtotalsDart _isolateSubtotals;
+  static late final _ExtractNamesFromEmailsDart _extractNamesFromEmails;
+  static late final _ImputeNamesFromEmailsDart _imputeNamesFromEmails;
 
   /// Automatically stitches multi-line records (e.g. from PDF/OCR or Tally)
   /// where 1 transaction spans across 2-4 rows into unified clean rows.
@@ -1002,6 +1013,35 @@ class NativeEngine {
   static String isolateSubtotals() {
     if (!_initialized) initialize();
     final resPtr = _isolateSubtotals();
+    if (resPtr == nullptr) return '{"status":"error"}';
+    final res = resPtr.toDartString();
+    _freeString(resPtr);
+    return res;
+  }
+
+  /// Extracts candidate human names from email addresses where Name is blank.
+  /// Only active if an Email column exists. Automatically discards bot/fuzzy emails.
+  static String extractNamesFromEmails({String? nameColumn, String? emailColumn}) {
+    if (!_initialized) initialize();
+    final namePtr = (nameColumn ?? '').toNativeUtf8();
+    final emailPtr = (emailColumn ?? '').toNativeUtf8();
+    final resPtr = _extractNamesFromEmails(namePtr, emailPtr);
+    calloc.free(namePtr);
+    calloc.free(emailPtr);
+    if (resPtr == nullptr) return '{"status":"error"}';
+    final res = resPtr.toDartString();
+    _freeString(resPtr);
+    return res;
+  }
+
+  /// Bulk-imputes extracted human names into blank Name cells from corresponding Email cells.
+  static String imputeNamesFromEmails({String? nameColumn, String? emailColumn}) {
+    if (!_initialized) initialize();
+    final namePtr = (nameColumn ?? '').toNativeUtf8();
+    final emailPtr = (emailColumn ?? '').toNativeUtf8();
+    final resPtr = _imputeNamesFromEmails(namePtr, emailPtr);
+    calloc.free(namePtr);
+    calloc.free(emailPtr);
     if (resPtr == nullptr) return '{"status":"error"}';
     final res = resPtr.toDartString();
     _freeString(resPtr);

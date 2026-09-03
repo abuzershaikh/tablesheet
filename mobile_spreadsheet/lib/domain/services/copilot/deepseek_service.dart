@@ -248,6 +248,7 @@ When cleaning data in the sheet:
 - `demix_column_entities`: Disassembles multi-entity columns into separate clean columns.
 - `isolate_subtotals`: Eliminates subtotal/divider noise.
 - `find_clusters`: OpenRefine-style fuzzy clustering for typos.
+- `impute_names_from_emails`: Extracts authentic human names from email addresses and backfills blank Name cells. Only runs if an Email column exists. Automatically ignores bot mailboxes (info@, support@) and random hashes.
 - `task_complete`: ONLY when ALL work is verified and done.
 
 === 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
@@ -420,6 +421,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                                      name == 'summarize_sheet' ||
                                      name == 'analyze_email' ||
                                      name == 'find_clusters' ||
+                                     name == 'impute_names_from_emails' ||
                                      name == 'task_complete';
 
             final targetKey = extractTargetKey(name, args);
@@ -522,6 +524,24 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 CopilotService.addActionLog('Analyzed Email', 'Parsed local-part from $rawEmail');
                 final resStr = NativeEngine.analyzeEmail(rawEmail);
                 toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
+              } else if (name == 'impute_names_from_emails') {
+                final nameCol = args['name_column']?.toString();
+                final emailCol = args['email_column']?.toString();
+                final apply = args['apply'] == true;
+                CopilotService.updateStatus(apply ? AgentStatus.executing : AgentStatus.researching);
+                CopilotService.addActionLog(
+                  apply ? 'Imputed Names' : 'Extracted Names',
+                  'Extracting human names from email addresses',
+                );
+                debugPrint("[DeepSeekService] impute_names_from_emails: nameCol=$nameCol, emailCol=$emailCol, apply=$apply");
+                final resStr = apply
+                    ? NativeEngine.imputeNamesFromEmails(nameColumn: nameCol, emailColumn: emailCol)
+                    : NativeEngine.extractNamesFromEmails(nameColumn: nameCol, emailColumn: emailCol);
+                toolResult = jsonDecode(resStr.isNotEmpty ? resStr : '{}');
+                if (apply) {
+                  await LocalAgentService.syncNativeToStorage(sheetId);
+                  CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
+                }
               } else if (name == 'batch_read_rows') {
                 final startRow = (args['start_row'] as num?)?.toInt() ?? 2;
                 final count = (args['count'] as num?)?.toInt() ?? 20;

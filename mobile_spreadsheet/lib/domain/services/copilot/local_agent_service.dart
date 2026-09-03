@@ -323,6 +323,27 @@ class LocalAgentService {
           }
         },
         {
+          "name": "impute_names_from_emails",
+          "description": "Extracts human first and last names from email addresses for rows where the Name column is missing or blank. Automatically detects Name and Email columns if omitted. Only executes if an Email column exists. Automatically discards bot/generic mailboxes (info@, support@) and fuzzy/random hashes. When apply is true, bulk-populates verified names directly into the blank Name cells.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "name_column": {
+                "type": "STRING",
+                "description": "Optional column letter for Name (e.g. 'B'). If omitted, auto-detected from headers or data."
+              },
+              "email_column": {
+                "type": "STRING",
+                "description": "Optional column letter for Email (e.g. 'C'). If omitted, auto-detected from headers or data."
+              },
+              "apply": {
+                "type": "BOOLEAN",
+                "description": "If true, bulk-applies verified names into blank cells in the sheet. If false, returns candidate names for AI review."
+              }
+            }
+          }
+        },
+        {
           "name": "batch_read_rows",
           "description": "Batch reads a focused window of rows (N to N+K, optimal 10-15 rows, max 20 per call) across specified columns. Use to inspect messy data line-by-line in small focused chunks without confusing token limits.",
           "parameters": {
@@ -723,6 +744,7 @@ For EVERY task, follow this loop:
 - `analyze_column`: Deep-analyze ONE column. Returns: primary_type, secondary_type, confidence, statistics {total,blank,duplicates,invalid,dirty,quality_score}, candidates[], knowledge_tags[], issues[], recommended_actions[].
 - `clean_column`: Auto-clean entire column. Phone→+91XXXXXXXXXX. Price→1250.0. Name→Title Case. Email→lowercase.
 - `find_clusters`: OpenRefine-style fuzzy clustering. Returns: clusters [{canonical, variants[], similarity}]. Use for company names, product names, city names with typos.
+- `impute_names_from_emails`: Extracts authentic human names from email addresses and backfills blank Name cells. Only runs if an Email column exists. Automatically ignores bot mailboxes (info@, support@) and random hashes.
 - `summarize_sheet`: Full sheet JSON (older tool, use understand_sheet instead).
 - `task_complete`: ONLY when ALL work is 100% done.
 
@@ -1235,6 +1257,7 @@ Pipeline MUST have {"steps": [...]}. Example:
                                      name == 'summarize_sheet' ||
                                      name == 'analyze_email' ||
                                      name == 'find_clusters' ||
+                                     name == 'impute_names_from_emails' ||
                                      name == 'task_complete';
 
             final targetKey = extractTargetKey(name, args);
@@ -1407,6 +1430,30 @@ Pipeline MUST have {"steps": [...]}. Example:
               debugPrint("[CopilotAgent] isolate_subtotals executing via C++ engine...");
               final resultJson = NativeEngine.isolateSubtotals();
               debugPrint("[CopilotAgent] isolate_subtotals result: $resultJson");
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": jsonDecode(resultJson.isNotEmpty ? resultJson : '{}')}
+                }
+              });
+            } else if (name == 'impute_names_from_emails') {
+              final nameCol = args['name_column']?.toString();
+              final emailCol = args['email_column']?.toString();
+              final apply = args['apply'] == true;
+              CopilotService.updateStatus(apply ? AgentStatus.executing : AgentStatus.researching);
+              CopilotService.addActionLog(
+                apply ? 'Imputed Names' : 'Extracted Names',
+                'Extracting human names from email addresses',
+              );
+              debugPrint("[CopilotAgent] impute_names_from_emails: nameCol=$nameCol, emailCol=$emailCol, apply=$apply");
+              final resultJson = apply
+                  ? NativeEngine.imputeNamesFromEmails(nameColumn: nameCol, emailColumn: emailCol)
+                  : NativeEngine.extractNamesFromEmails(nameColumn: nameCol, emailColumn: emailCol);
+              debugPrint("[CopilotAgent] impute_names_from_emails result: $resultJson");
+              if (apply) {
+                await syncNativeToStorage(sheetId);
+                CopilotService.pipelineNotifier.value = {'steps': [{'action': 'refresh'}]};
+              }
               userParts.add({
                 "functionResponse": {
                   "name": name,

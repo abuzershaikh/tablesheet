@@ -29,6 +29,7 @@
 #include "data_engine/cleaning/row_aligner.h"
 #include "data_engine/cleaning/record_stitcher.h"
 #include "data_engine/cleaning/mixed_cell_demixer.h"
+#include "data_engine/cleaning/name_from_email_cleaner.h"
 #include "data_engine/analyzer/subtotal_isolator.h"
 #include "data_engine/tests/test_runner.h"
 
@@ -2017,6 +2018,201 @@ char* run_data_pipeline_tests_ffi() {
     }
 }
 
+static std::pair<std::string, std::string> detectNameAndEmailCols(const char* nameColInput, const char* emailColInput) {
+    std::string nameCol = nameColInput ? nameColInput : "";
+    std::string emailCol = emailColInput ? emailColInput : "";
+
+    while (!nameCol.empty() && std::isspace((unsigned char)nameCol.front())) nameCol.erase(0, 1);
+    while (!nameCol.empty() && std::isspace((unsigned char)nameCol.back())) nameCol.pop_back();
+    while (!emailCol.empty() && std::isspace((unsigned char)emailCol.front())) emailCol.erase(0, 1);
+    while (!emailCol.empty() && std::isspace((unsigned char)emailCol.back())) emailCol.pop_back();
+
+    if (!nameCol.empty() && !emailCol.empty()) {
+        std::transform(nameCol.begin(), nameCol.end(), nameCol.begin(), ::toupper);
+        std::transform(emailCol.begin(), emailCol.end(), emailCol.begin(), ::toupper);
+        return {nameCol, emailCol};
+    }
+
+    // Auto-detect from Row 1 headers
+    int maxCols = 26;
+    for (int c = 0; c < maxCols; c++) {
+        std::string colLetter(1, 'A' + c);
+        std::string headerCell = colLetter + "1";
+        if (GridManager::getInstance().isCellEmpty(headerCell)) continue;
+
+        EvalResult res = GridManager::getInstance().evaluateCell(headerCell);
+        std::string h;
+        if (std::holds_alternative<std::string>(res)) h = std::get<std::string>(res);
+        std::string lowerH = h;
+        std::transform(lowerH.begin(), lowerH.end(), lowerH.begin(), ::tolower);
+
+        if (emailCol.empty()) {
+            if (lowerH.find("email") != std::string::npos || lowerH.find("mail") != std::string::npos) {
+                emailCol = colLetter;
+            }
+        }
+        if (nameCol.empty()) {
+            if (lowerH.find("name") != std::string::npos || lowerH.find("customer") != std::string::npos ||
+                lowerH.find("person") != std::string::npos || lowerH.find("client") != std::string::npos ||
+                lowerH.find("user") != std::string::npos) {
+                nameCol = colLetter;
+            }
+        }
+    }
+
+    // Fallback detection via ColumnAnalyzer if headers didn't match
+    if (emailCol.empty() || nameCol.empty()) {
+        for (int c = 0; c < maxCols; c++) {
+            std::string colLetter(1, 'A' + c);
+            if (colLetter == emailCol || colLetter == nameCol) continue;
+            auto analysis = Filters::ColumnAnalyzer::getInstance().analyze(colLetter, false);
+            if (emailCol.empty() && analysis.dominantType == Filters::DataType::EMAIL) {
+                emailCol = colLetter;
+            } else if (nameCol.empty() && analysis.dominantType == Filters::DataType::TEXT) {
+                nameCol = colLetter;
+            }
+        }
+    }
+
+    return {nameCol, emailCol};
+}
+
+char* native_extractNamesFromEmails(const char* nameColLetter, const char* emailColLetter) {
+    try {
+        auto [nameCol, emailCol] = detectNameAndEmailCols(nameColLetter, emailColLetter);
+
+        if (emailCol.empty()) {
+            return allocFfiString("{\"status\":\"INACTIVE\",\"message\":\"No Email column detected. Engine is OFF.\",\"candidates\":[]}");
+        }
+        if (nameCol.empty()) {
+            return allocFfiString("{\"status\":\"INACTIVE\",\"message\":\"No Name column detected. Engine is OFF.\",\"candidates\":[]}");
+        }
+
+        int lastRow = GridManager::getInstance().getLastRow();
+        nlohmann::json candidates = nlohmann::json::array();
+        int totalMissingNames = 0;
+        int dismissedCount = 0;
+
+        for (int r = 2; r <= lastRow; r++) {
+            std::string nameRef = nameCol + std::to_string(r);
+            std::string emailRef = emailCol + std::to_string(r);
+
+            // Check if name cell is empty
+            bool nameIsEmpty = true;
+            if (!GridManager::getInstance().isCellEmpty(nameRef)) {
+                EvalResult nRes = GridManager::getInstance().evaluateCell(nameRef);
+                std::string nVal;
+                if (std::holds_alternative<std::string>(nRes)) nVal = std::get<std::string>(nRes);
+                while (!nVal.empty() && std::isspace((unsigned char)nVal.front())) nVal.erase(0, 1);
+                while (!nVal.empty() && std::isspace((unsigned char)nVal.back())) nVal.pop_back();
+                if (!nVal.empty()) nameIsEmpty = false;
+            }
+
+            if (!nameIsEmpty) continue; // Existing name is intact! Do not touch!
+            totalMissingNames++;
+
+            if (GridManager::getInstance().isCellEmpty(emailRef)) continue;
+            EvalResult eRes = GridManager::getInstance().evaluateCell(emailRef);
+            std::string emailVal;
+            if (std::holds_alternative<std::string>(eRes)) emailVal = std::get<std::string>(eRes);
+            if (emailVal.empty()) continue;
+
+            auto extracted = Filters::NameFromEmailCleaner::extractName(emailVal);
+            if (extracted.isValidHumanName) {
+                nlohmann::json cand;
+                cand["row"] = r;
+                cand["name_cell"] = nameRef;
+                cand["email_cell"] = emailRef;
+                cand["email"] = emailVal;
+                cand["extracted_name"] = extracted.fullName;
+                cand["first_name"] = extracted.firstName;
+                cand["last_name"] = extracted.lastName;
+                cand["confidence"] = extracted.confidence;
+                candidates.push_back(cand);
+            } else {
+                dismissedCount++;
+            }
+        }
+
+        nlohmann::json res;
+        res["status"] = "SUCCESS";
+        res["name_column"] = nameCol;
+        res["email_column"] = emailCol;
+        res["total_missing_names"] = totalMissingNames;
+        res["extracted_count"] = candidates.size();
+        res["dismissed_count"] = dismissedCount;
+        res["candidates"] = candidates;
+        return allocFfiString(res.dump());
+    } catch (const std::exception& e) {
+        return allocFfiString(std::string("{\"error\":\"") + e.what() + "\"}");
+    }
+}
+
+char* native_imputeNamesFromEmails(const char* nameColLetter, const char* emailColLetter) {
+    try {
+        auto [nameCol, emailCol] = detectNameAndEmailCols(nameColLetter, emailColLetter);
+
+        if (emailCol.empty() || nameCol.empty()) {
+            return allocFfiString("{\"status\":\"INACTIVE\",\"message\":\"Email or Name column missing. Engine is OFF.\",\"imputed_count\":0}");
+        }
+
+        int lastRow = GridManager::getInstance().getLastRow();
+        nlohmann::json imputedList = nlohmann::json::array();
+        int imputedCount = 0;
+        int dismissedCount = 0;
+
+        for (int r = 2; r <= lastRow; r++) {
+            std::string nameRef = nameCol + std::to_string(r);
+            std::string emailRef = emailCol + std::to_string(r);
+
+            // Check if name cell is empty
+            bool nameIsEmpty = true;
+            if (!GridManager::getInstance().isCellEmpty(nameRef)) {
+                EvalResult nRes = GridManager::getInstance().evaluateCell(nameRef);
+                std::string nVal;
+                if (std::holds_alternative<std::string>(nRes)) nVal = std::get<std::string>(nRes);
+                while (!nVal.empty() && std::isspace((unsigned char)nVal.front())) nVal.erase(0, 1);
+                while (!nVal.empty() && std::isspace((unsigned char)nVal.back())) nVal.pop_back();
+                if (!nVal.empty()) nameIsEmpty = false;
+            }
+
+            if (!nameIsEmpty) continue; // Preserve existing names!
+
+            if (GridManager::getInstance().isCellEmpty(emailRef)) continue;
+            EvalResult eRes = GridManager::getInstance().evaluateCell(emailRef);
+            std::string emailVal;
+            if (std::holds_alternative<std::string>(eRes)) emailVal = std::get<std::string>(eRes);
+            if (emailVal.empty()) continue;
+
+            auto extracted = Filters::NameFromEmailCleaner::extractName(emailVal);
+            if (extracted.isValidHumanName && !extracted.fullName.empty()) {
+                GridManager::getInstance().setCellConstantString(nameRef, extracted.fullName);
+                imputedCount++;
+
+                nlohmann::json item;
+                item["cell"] = nameRef;
+                item["name"] = extracted.fullName;
+                item["email"] = emailVal;
+                imputedList.push_back(item);
+            } else {
+                dismissedCount++;
+            }
+        }
+
+        nlohmann::json res;
+        res["status"] = "SUCCESS";
+        res["imputed_count"] = imputedCount;
+        res["dismissed_count"] = dismissedCount;
+        res["name_column"] = nameCol;
+        res["email_column"] = emailCol;
+        res["imputations"] = imputedList;
+        return allocFfiString(res.dump());
+    } catch (const std::exception& e) {
+        return allocFfiString(std::string("{\"error\":\"") + e.what() + "\"}");
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif
+
