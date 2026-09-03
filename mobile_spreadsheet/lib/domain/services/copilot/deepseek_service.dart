@@ -209,6 +209,9 @@ class DeepSeekService {
     final gridSummary = jsonEncode(compactGrid);
     final supportsTools = (selectedModel == 'deepseek-chat');
 
+    final workbookOverview = await LocalAgentService.getWorkbookOverview(sheetId);
+    final workbookOverviewText = workbookOverview['summary_text']?.toString() ?? '';
+
     final systemPrompt = """
 You are an AUTONOMOUS SUPER-INTELLIGENT spreadsheet agent with FULL loop execution power powered by DeepSeek.
 
@@ -237,6 +240,14 @@ CRITICAL: NEVER re-insert, copy, or reproduce existing cell data using fill_data
 
 Sheet Overview (compact):
 $gridSummary
+
+=== ALL WORKBOOK SHEETS (AUTONOMOUS MULTI-SHEET AWARENESS) ===
+The entire workbook currently contains:
+$workbookOverviewText
+
+CRITICAL AUTONOMOUS MULTI-SHEET BEHAVIOR:
+- You have full autonomous visibility over all other sheet tabs in this workbook.
+- If any other sheet tab (like Sheet 2 or Instructions) contains instructions, requirements, or reference data, you MUST AUTONOMOUSLY inspect it via `read_sheet_tab` or use its contents to solve the user's task, even if the user didn't explicitly name Sheet 2!
 
 ${supportsTools ? """
 === SOTA AUTONOMOUS DATA CLEANING PROTOCOL ===

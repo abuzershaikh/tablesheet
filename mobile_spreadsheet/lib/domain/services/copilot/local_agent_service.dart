@@ -1070,6 +1070,101 @@ Pipeline MUST have {"steps": [...]}. Example:
     }
   }
 
+  /// Generates a complete autonomous overview of all sheets in the workbook.
+  /// If any secondary sheet contains instructions, tasks, or reference data,
+  /// it automatically includes a preview so the AI agent is instantly aware of it!
+  static Future<Map<String, dynamic>> getWorkbookOverview(String activeSheetId) async {
+    final sheets = CopilotService.currentWorkbookSheets;
+    if (sheets.isEmpty) {
+      return {
+        "total_sheets": 1,
+        "sheets": [
+          {"name": "Sheet 1", "id": activeSheetId, "is_active": true}
+        ],
+        "summary_text": "- [ACTIVE] 'Sheet 1' (Active Sheet)"
+      };
+    }
+
+    final List<Map<String, dynamic>> sheetDetails = [];
+    final List<String> summaryLines = [];
+
+    for (int i = 0; i < sheets.length; i++) {
+      final s = sheets[i];
+      final id = s['id'] ?? s['sheetId'] ?? '';
+      final name = s['name'] ?? 'Sheet ${i + 1}';
+      final isActive = (id == activeSheetId);
+      final isFirst = (i == 0);
+
+      // Load cell data for this sheet
+      final fallbackSpreadsheetId = isFirst ? CopilotService.currentSpreadsheetId : null;
+      final cells = await SheetDataStorage.loadCellData(id, fallbackSpreadsheetId: fallbackSpreadsheetId) ?? {};
+
+      // Parse headers and quick preview
+      final headers = <String>[];
+      final previewCells = <String>[];
+      int rowCount = 0;
+      int colCount = 0;
+
+      cells.forEach((k, v) {
+        int r = -1;
+        int c = -1;
+        if (k.contains(':')) {
+          final parts = k.split(':');
+          if (parts.length == 2) {
+            r = int.tryParse(parts[0]) ?? -1;
+            c = int.tryParse(parts[1]) ?? -1;
+          }
+        } else {
+          final coords = FormulaUtils.parseCellRef(k);
+          if (coords != null) {
+            r = coords.$1;
+            c = coords.$2;
+          }
+        }
+
+        if (r >= 0 && c >= 0) {
+          if (r + 1 > rowCount) rowCount = r + 1;
+          if (c + 1 > colCount) colCount = c + 1;
+
+          final strVal = v.toString().trim();
+          if (r == 0 && strVal.isNotEmpty && headers.length < 10) {
+            headers.add(strVal);
+          }
+          if (previewCells.length < 8 && strVal.isNotEmpty) {
+            final ref = FormulaUtils.cellRefFromCoords(r, c);
+            previewCells.add("$ref: \"$strVal\"");
+          }
+        }
+      });
+
+      final detail = <String, dynamic>{
+        "name": name,
+        "sheet_id": id,
+        "is_active": isActive,
+        "total_rows": rowCount,
+        "total_columns": colCount,
+        "headers": headers,
+      };
+
+      if (!isActive && previewCells.isNotEmpty) {
+        detail["preview"] = previewCells.join(" | ");
+      }
+
+      sheetDetails.add(detail);
+
+      final statusStr = isActive ? "[ACTIVE]" : "[OTHER TAB]";
+      summaryLines.add(
+        "- $statusStr '$name' ($rowCount rows, $colCount cols)${headers.isNotEmpty ? ' | Headers: [${headers.join(", ")}]' : ''}${detail.containsKey('preview') ? ' | Preview: ${detail['preview']}' : ''}"
+      );
+    }
+
+    return {
+      "total_sheets": sheets.length,
+      "sheets": sheetDetails,
+      "summary_text": summaryLines.join("\n"),
+    };
+  }
+
   /// Lists all sheet tabs in the current workbook
   static Future<Map<String, dynamic>> executeListWorkbookSheets(String activeSheetId) async {
     final sheets = CopilotService.currentWorkbookSheets;
@@ -1442,9 +1537,19 @@ Pipeline MUST have {"steps": [...]}. Example:
     final continuousLoopEnabled = prefs.getBool('ai_agent_continuous_loop_enabled') ?? true;
     final customInstructions = prefs.getString('ai_agent_custom_instructions') ?? '';
 
-    final activeSystemInstruction = customInstructions.isNotEmpty
+    final workbookOverview = await getWorkbookOverview(sheetId);
+    final workbookOverviewText = workbookOverview['summary_text']?.toString() ?? '';
+
+    String activeSystemInstruction = customInstructions.isNotEmpty
         ? "$_systemInstruction\n\nUSER CUSTOM INSTRUCTIONS:\n$customInstructions"
         : _systemInstruction;
+
+    if (workbookOverviewText.isNotEmpty) {
+      activeSystemInstruction += "\n\n=== WORKBOOK SHEETS OVERVIEW (AUTONOMOUS MULTI-SHEET AWARENESS) ===\n"
+          "The current workbook contains the following sheet tabs:\n"
+          "$workbookOverviewText\n"
+          "AUTONOMOUS RULE: If another sheet tab (like Sheet 2 or Instructions) contains instructions, requirements, or reference data, you should AUTONOMOUSLY inspect it via `read_sheet_tab` or follow its contents, without waiting for the user to tell you!";
+    }
 
     if (!memoryEnabled) {
       _persistentMemoryHistory.clear();
