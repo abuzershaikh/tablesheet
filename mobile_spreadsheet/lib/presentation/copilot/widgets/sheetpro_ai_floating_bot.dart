@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import '../copilot_chat_screen.dart';
 
 class SheetproAiFloatingBot extends StatefulWidget {
@@ -22,9 +21,11 @@ class SheetproAiFloatingBot extends StatefulWidget {
 class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with TickerProviderStateMixin {
   Offset? _position;
   late AnimationController _rotateController;
-  late AnimationController _glowController;
+  late AnimationController _popController;
+  late Animation<double> _popAnimation;
   late AnimationController _sparkleController;
-  late Animation<double> _glowAnimation;
+  late AnimationController _aiGlowController;
+  late Animation<double> _aiGlowAnimation;
 
   @override
   void initState() {
@@ -35,28 +36,50 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
       duration: const Duration(seconds: 4),
     )..repeat();
 
-    // Subtle pulsing neon glow animation
-    _glowController = AnimationController(
+    // Rhythmic pop-up pulse animation (pops up smoothly every 2.2s)
+    _popController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 2200),
+    )..repeat();
 
-    // Sparkles / Sprinkles radiating outward from border
+    _popAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.08).chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.08, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween<double>(1.0),
+        weight: 40,
+      ),
+    ]).animate(_popController);
+
+    // Radiating border sparkles / sprinkles
     _sparkleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     )..repeat();
 
-    _glowAnimation = Tween<double>(begin: 4.0, end: 12.0).animate(
-      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    // Animated breathing glow on the "AI" badge
+    _aiGlowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+
+    _aiGlowAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(parent: _aiGlowController, curve: Curves.easeInOut),
     );
   }
 
   @override
   void dispose() {
     _rotateController.dispose();
-    _glowController.dispose();
+    _popController.dispose();
     _sparkleController.dispose();
+    _aiGlowController.dispose();
     super.dispose();
   }
 
@@ -73,20 +96,24 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
     final mediaQuery = MediaQuery.of(context);
     final screenSize = mediaQuery.size;
 
-    // Balanced Medium Dimensions: 114 wide x 128 tall
-    const widgetWidth = 114.0;
-    const widgetHeight = 128.0;
+    // Card dimensions
+    const cardWidth = 144.0;
+    const cardHeight = 52.0;
 
-    // Default position: bottom-right above formula / bottom bar
-    final defaultX = screenSize.width - widgetWidth - 14.0;
-    final defaultY = screenSize.height - widgetHeight - 75.0;
+    // Container with room for sparkles and close button
+    const containerWidth = 160.0;
+    const containerHeight = 68.0;
+
+    // Default position: bottom-right
+    final defaultX = screenSize.width - containerWidth - 14.0;
+    final defaultY = screenSize.height - containerHeight - 80.0;
 
     final currentX = _position?.dx ?? defaultX;
     final currentY = _position?.dy ?? defaultY;
 
     // Clamp inside screen boundaries
-    final clampedX = currentX.clamp(6.0, screenSize.width - widgetWidth - 6.0);
-    final clampedY = currentY.clamp(35.0, screenSize.height - widgetHeight - 35.0);
+    final clampedX = currentX.clamp(6.0, screenSize.width - containerWidth - 6.0);
+    final clampedY = currentY.clamp(40.0, screenSize.height - containerHeight - 40.0);
 
     return Positioned(
       left: clampedX,
@@ -100,90 +127,23 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
         child: Material(
           color: Colors.transparent,
           child: SizedBox(
-            width: widgetWidth,
-            height: widgetHeight,
+            width: containerWidth,
+            height: containerHeight,
             child: Stack(
               clipBehavior: Clip.none,
+              alignment: Alignment.center,
               children: [
-                // ─── 1. CIRCULAR BASE WITH ROTATING NEON GRADIENT BORDER ───
-                Positioned(
-                  top: 22,
-                  left: 14,
-                  child: AnimatedBuilder(
-                    animation: _glowAnimation,
-                    builder: (context, child) {
-                      return Container(
-                        width: 86,
-                        height: 86,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF00F2FE).withValues(alpha: 0.45),
-                              blurRadius: _glowAnimation.value,
-                              spreadRadius: 2.0,
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.5),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: child,
-                      );
-                    },
-                    child: AnimatedBuilder(
-                      animation: _rotateController,
-                      builder: (context, _) {
-                        return Container(
-                          width: 86,
-                          height: 86,
-                          padding: const EdgeInsets.all(3.0), // Rotating border thickness
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: SweepGradient(
-                              transform: GradientRotation(_rotateController.value * 2 * math.pi),
-                              colors: const [
-                                Color(0xFF00F2FE), // Bright Cyan
-                                Color(0xFF4FACFE), // Electric Blue
-                                Color(0xFF00FF87), // Neon Mint
-                                Color(0xFFFF0844), // Pink/Crimson
-                                Color(0xFF7928CA), // Purple
-                                Color(0xFF00F2FE), // Loop back
-                              ],
-                            ),
-                          ),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(
-                                colors: [
-                                  const Color(0xFF1E293B).withValues(alpha: 0.95),
-                                  const Color(0xFF0A0F1D).withValues(alpha: 0.98),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-
-                // ─── 2. RADIATING SPARKLES / SPRINKLES FROM BORDER ───
-                Positioned(
-                  top: 10,
-                  left: 2,
-                  width: 110,
-                  height: 110,
+                // ─── 1. RADIATING SPARKLES AROUND CARD BORDER ───
+                Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedBuilder(
                       animation: _sparkleController,
                       builder: (context, _) {
                         return CustomPaint(
-                          painter: _BorderSparklesPainter(
+                          painter: _CardSparklesPainter(
                             progress: _sparkleController.value,
+                            cardWidth: cardWidth,
+                            cardHeight: cardHeight,
                           ),
                         );
                       },
@@ -191,102 +151,139 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
                   ),
                 ),
 
-                // ─── 3. LOTTIE ROBOT (MEDIUM 1.58x SCALE & 3D POP-OUT) ───
-                Positioned(
-                  top: -2, // Popped above circle top edge!
-                  left: 4,
+                // ─── 2. RHYTHMIC POP-UP ANIMATED CARD ───
+                AnimatedBuilder(
+                  animation: _popAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _popAnimation.value,
+                      child: child,
+                    );
+                  },
                   child: InkWell(
                     onTap: _openCopilot,
-                    splashColor: Colors.transparent,
-                    highlightColor: Colors.transparent,
-                    child: SizedBox(
-                      width: 106,
-                      height: 106,
-                      child: Transform.scale(
-                        scale: 1.58, // Medium, perfectly balanced zoom!
-                        alignment: const Alignment(0, 0.1),
-                        child: Lottie.asset(
-                          'assets/animations/aibot.json',
-                          fit: BoxFit.contain,
-                          repeat: true,
-                          animate: true,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(
-                              Icons.smart_toy_rounded,
-                              color: Colors.cyanAccent,
-                              size: 50,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // ─── 4. CIRCLE TAP TARGET ───
-                Positioned(
-                  top: 22,
-                  left: 14,
-                  width: 86,
-                  height: 86,
-                  child: InkWell(
-                    onTap: _openCopilot,
-                    customBorder: const CircleBorder(),
-                  ),
-                ),
-
-                // ─── 5. "SHEETPRO AI" PILL BADGE ───
-                Positioned(
-                  bottom: 3,
-                  left: 14,
-                  width: 86,
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: _openCopilot,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF0891B2), Color(0xFF0284C7)],
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            width: 0.9,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF00F2FE).withValues(alpha: 0.45),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
+                    borderRadius: BorderRadius.circular(26),
+                    child: AnimatedBuilder(
+                      animation: _rotateController,
+                      builder: (context, _) {
+                        return Container(
+                          width: cardWidth,
+                          height: cardHeight,
+                          padding: const EdgeInsets.all(2.5), // Rotating neon border thickness
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(26),
+                            gradient: SweepGradient(
+                              transform: GradientRotation(_rotateController.value * 2 * math.pi),
+                              colors: const [
+                                Color(0xFF00F2FE), // Cyan
+                                Color(0xFF4FACFE), // Electric Blue
+                                Color(0xFF00FF87), // Neon Mint Green
+                                Color(0xFFFF0844), // Pink/Crimson
+                                Color(0xFF7928CA), // Purple
+                                Color(0xFF00F2FE), // Loop back
+                              ],
                             ),
-                          ],
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.auto_awesome, color: Colors.white, size: 9.0),
-                            SizedBox(width: 3.0),
-                            Text(
-                              'Sheetpro AI',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 9.0,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.2,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00F2FE).withValues(alpha: 0.45),
+                                blurRadius: 10,
+                                spreadRadius: 1.5,
+                              ),
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0B132B),
+                              borderRadius: BorderRadius.circular(23.5),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color(0xFF1E293B),
+                                  Color(0xFF0F172A),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // Sparkle Star Icon
+                                const Icon(
+                                  Icons.auto_awesome,
+                                  color: Color(0xFF00F2FE),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+
+                                // "Sheetpro" Text
+                                const Text(
+                                  'Sheetpro',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+
+                                // Animated "AI" Glowing Badge
+                                AnimatedBuilder(
+                                  animation: _aiGlowAnimation,
+                                  builder: (context, _) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            const Color(0xFF06B6D4),
+                                            Color.lerp(
+                                              const Color(0xFF3B82F6),
+                                              const Color(0xFF8B5CF6),
+                                              _aiGlowAnimation.value,
+                                            )!,
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF06B6D4).withValues(alpha: _aiGlowAnimation.value * 0.7),
+                                            blurRadius: 8 * _aiGlowAnimation.value,
+                                            spreadRadius: 1.0,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Text(
+                                        'AI',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.8,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
 
-                // ─── 6. DISMISS (X) CLOSE BUTTON ───
+                // ─── 3. DISMISS (X) CLOSE BUTTON ───
                 Positioned(
-                  top: 14,
-                  right: 4,
+                  top: 2,
+                  right: 2,
                   child: GestureDetector(
                     onTap: () {
                       widget.onDismiss?.call();
@@ -297,10 +294,10 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
                       decoration: BoxDecoration(
                         color: const Color(0xFF1E293B),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white54, width: 1.2),
+                        border: Border.all(color: Colors.white60, width: 1.2),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.5),
+                            color: Colors.black.withValues(alpha: 0.6),
                             blurRadius: 4,
                           ),
                         ],
@@ -322,56 +319,77 @@ class _SheetproAiFloatingBotState extends State<SheetproAiFloatingBot> with Tick
   }
 }
 
-/// Custom painter to draw twinkling, radiating 4-point sparkle stars around the border
-class _BorderSparklesPainter extends CustomPainter {
+/// Custom painter to draw animated twinkling sparkles around the card perimeter
+class _CardSparklesPainter extends CustomPainter {
   final double progress;
+  final double cardWidth;
+  final double cardHeight;
 
-  _BorderSparklesPainter({required this.progress});
+  _CardSparklesPainter({
+    required this.progress,
+    required this.cardWidth,
+    required this.cardHeight,
+  });
 
-  // 8 sparkle positions around circle (radius ~43px from center at (55, 55))
-  static const List<double> baseAngles = [
-    0.35,   // top right
-    1.10,   // bottom right
-    1.90,   // bottom
-    2.75,   // bottom left
-    3.55,   // left
-    4.30,   // top left
-    5.15,   // top
-    5.90,   // upper right
+  // Relative positions along the perimeter (0.0 to 1.0)
+  static const List<double> perimeterStops = [
+    0.05, 0.20, 0.35, 0.50, 0.65, 0.80, 0.92,
   ];
 
   static const List<Color> sparkleColors = [
     Color(0xFF00F2FE), // Cyan
-    Color(0xFFFFDF00), // Golden yellow
+    Color(0xFFFFDF00), // Gold
     Color(0xFF00FF87), // Mint green
     Color(0xFFFFFFFF), // Pure white
-    Color(0xFFFF4081), // Pink
-    Color(0xFF00F2FE), // Cyan
-    Color(0xFFFFE57F), // Warm gold
+    Color(0xFFFF4081), // Neon Pink
     Color(0xFF80D8FF), // Sky blue
+    Color(0xFFFFE57F), // Warm gold
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    const baseRadius = 45.0;
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final halfW = cardWidth / 2;
+    final halfH = cardHeight / 2;
 
-    for (int i = 0; i < baseAngles.length; i++) {
-      // Stagger animation for each particle
-      final phase = (progress + (i / baseAngles.length)) % 1.0;
+    for (int i = 0; i < perimeterStops.length; i++) {
+      final phase = (progress + (i / perimeterStops.length)) % 1.0;
+      final t = (perimeterStops[i] + (progress * 0.2)) % 1.0;
 
-      // Particle drifts outward from baseRadius to baseRadius + 12
-      final currentRadius = baseRadius + (phase * 11.0);
-      final angle = baseAngles[i] + (progress * 0.4);
+      // Calculate perimeter coordinate on rounded card
+      Offset basePos;
+      Offset normalDir;
 
-      final sparkPos = Offset(
-        center.dx + currentRadius * math.cos(angle),
-        center.dy + currentRadius * math.sin(angle),
-      );
+      if (t < 0.35) {
+        // Top edge
+        final frac = t / 0.35;
+        basePos = Offset(centerX - halfW + (cardWidth * frac), centerY - halfH);
+        normalDir = const Offset(0, -1);
+      } else if (t < 0.5) {
+        // Right edge
+        final frac = (t - 0.35) / 0.15;
+        basePos = Offset(centerX + halfW, centerY - halfH + (cardHeight * frac));
+        normalDir = const Offset(1, 0);
+      } else if (t < 0.85) {
+        // Bottom edge
+        final frac = (t - 0.5) / 0.35;
+        basePos = Offset(centerX + halfW - (cardWidth * frac), centerY + halfH);
+        normalDir = const Offset(0, 1);
+      } else {
+        // Left edge
+        final frac = (t - 0.85) / 0.15;
+        basePos = Offset(centerX - halfW, centerY + halfH - (cardHeight * frac));
+        normalDir = const Offset(-1, 0);
+      }
 
-      // Sparkle size and opacity swell and fade (sine curve)
+      // Drift outward from border
+      final drift = phase * 9.0;
+      final sparkPos = basePos + (normalDir * drift);
+
+      // Swell and fade
       final intensity = math.sin(phase * math.pi);
-      final sparkSize = 2.5 + (intensity * 3.5); // 2.5 to 6px
+      final sparkSize = 2.0 + (intensity * 3.5);
       final opacity = (intensity * 0.95).clamp(0.0, 1.0);
 
       _drawSparkle(canvas, sparkPos, sparkSize, sparkleColors[i % sparkleColors.length], opacity);
@@ -385,13 +403,12 @@ class _BorderSparklesPainter extends CustomPainter {
       ..color = color.withValues(alpha: opacity)
       ..style = PaintingStyle.fill;
 
-    // Glowing halo
     final glowPaint = Paint()
       ..color = color.withValues(alpha: (opacity * 0.45).clamp(0.0, 1.0))
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, size * 0.9);
 
     final path = Path();
-    // 4-pointed sparkle star shape
+    // 4-pointed sparkle star shape (✦)
     path.moveTo(center.dx, center.dy - size);
     path.quadraticBezierTo(center.dx, center.dy, center.dx + size, center.dy);
     path.quadraticBezierTo(center.dx, center.dy, center.dx, center.dy + size);
@@ -402,12 +419,12 @@ class _BorderSparklesPainter extends CustomPainter {
     canvas.drawPath(path, glowPaint);
     canvas.drawPath(path, paint);
 
-    // Bright tiny core dot
+    // Bright core dot
     final corePaint = Paint()..color = Colors.white.withValues(alpha: opacity);
     canvas.drawCircle(center, size * 0.28, corePaint);
   }
 
   @override
-  bool shouldRepaint(covariant _BorderSparklesPainter oldDelegate) =>
+  bool shouldRepaint(covariant _CardSparklesPainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
