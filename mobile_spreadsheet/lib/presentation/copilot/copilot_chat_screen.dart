@@ -50,16 +50,21 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
   bool _autoExecutePipeline = true;
   String _selectedProvider = 'gemini';
   late AnimationController _micPulseController;
+  late AnimationController _aiBreathController;
 
   List<CopilotSessionMessage> get _messages => CopilotSessionService.instance.taskMessages;
 
-  final List<String> _quickSuggestions = [
-    '🧹 Clean and sanitize this sheet',
-    '📧 Impute missing names from emails',
-    '📊 Summarize sheet quality & issues',
-    '🔍 Find and cluster duplicate rows',
-    '📅 Normalize all dates to standard format',
-  ];
+  // ── Premium Color Palette ──
+  static const _primaryBlue = Color(0xFF2563EB);
+  static const _lightBlue = Color(0xFF3B82F6);
+  static const _paleBlue = Color(0xFFDBEAFE);
+  static const _surfaceWhite = Color(0xFFF8FAFC);
+  static const _cardWhite = Colors.white;
+  static const _headerBlue = Color(0xFF1E40AF);
+  static const _textDark = Color(0xFF1E293B);
+  static const _textMuted = Color(0xFF64748B);
+  static const _borderLight = Color(0xFFE2E8F0);
+  static const _aiAccent = Color(0xFF6366F1);
 
   @override
   void initState() {
@@ -69,6 +74,10 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
+    _aiBreathController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
     _loadPreferences();
   }
 
@@ -87,6 +96,7 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
     _inputController.dispose();
     _scrollController.dispose();
     _micPulseController.dispose();
+    _aiBreathController.dispose();
     _audioRecorder.dispose();
     super.dispose();
   }
@@ -107,27 +117,54 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Clear Chat History?', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to clear this conversation?', style: TextStyle(color: Colors.white70, fontSize: 13)),
+        backgroundColor: _cardWhite,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.delete_sweep_rounded, color: Colors.red.shade400, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Clear Chat?', style: TextStyle(color: _textDark, fontSize: 17, fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: const Text(
+          'This will delete the entire conversation history with SheetPro AI.',
+          style: TextStyle(color: _textMuted, fontSize: 13.5, height: 1.4),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: _textMuted, fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade500,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+            ),
             onPressed: () {
               Navigator.pop(context);
               setState(() {
                 CopilotSessionService.instance.clearTab('task');
               });
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Chat cleared'), duration: Duration(seconds: 1)),
+                SnackBar(
+                  content: const Text('Chat cleared'),
+                  backgroundColor: _primaryBlue,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  duration: const Duration(seconds: 1),
+                ),
               );
             },
-            child: const Text('Clear', style: TextStyle(color: Colors.white)),
+            child: const Text('Clear', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -138,25 +175,38 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Row(
+        backgroundColor: _cardWhite,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
-            SizedBox(width: 8),
-            Text('Stop Execution?', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.pause_circle_filled_rounded, color: Colors.orange.shade600, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Stop Agent?', style: TextStyle(color: _textDark, fontSize: 17, fontWeight: FontWeight.w700)),
           ],
         ),
         content: const Text(
-          'Are you sure you want to stop the AI Agent loop execution?',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
+          'The AI agent is currently working on your spreadsheet. Are you sure you want to stop?',
+          style: TextStyle(color: _textMuted, fontSize: 13.5, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text('Continue', style: TextStyle(color: _textMuted, fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade500,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+            ),
             onPressed: () {
               Navigator.pop(context);
               CopilotService.stopAgentLoop();
@@ -164,7 +214,7 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                 _isLoading = false;
               });
             },
-            child: const Text('Stop Agent', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text('Stop Agent', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -174,47 +224,80 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
   void _openLogsModal() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: _cardWhite,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.all(16),
-          height: 380,
+          padding: const EdgeInsets.all(20),
+          height: 400,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Handle bar
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: _borderLight,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.list_alt_rounded, color: Colors.cyanAccent, size: 20),
-                      SizedBox(width: 8),
-                      Text(
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _paleBlue,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.terminal_rounded, color: _primaryBlue, size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
                         'Live Action Logs',
-                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: _textDark, fontSize: 16, fontWeight: FontWeight.w700),
                       ),
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _surfaceWhite,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.close_rounded, color: _textMuted, size: 18),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
-              const Divider(color: Colors.white10),
+              const SizedBox(height: 12),
               Expanded(
                 child: ValueListenableBuilder<List<AgentActionLog>>(
                   valueListenable: CopilotService.actionLogsNotifier,
                   builder: (context, logs, _) {
                     if (logs.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          'No action logs yet.\nLogs appear live as the agent performs actions!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.insights_rounded, color: _borderLight, size: 48),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No logs yet',
+                              style: TextStyle(color: _textMuted, fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Logs appear as the agent performs actions',
+                              style: TextStyle(color: _textMuted.withValues(alpha: 0.6), fontSize: 12),
+                            ),
+                          ],
                         ),
                       );
                     }
@@ -225,24 +308,24 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                         final timeStr = '${log.timestamp.hour.toString().padLeft(2, '0')}:${log.timestamp.minute.toString().padLeft(2, '0')}:${log.timestamp.second.toString().padLeft(2, '0')}';
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0F172A),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white10),
+                            color: _surfaceWhite,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _borderLight),
                           ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.cyan[900],
-                                  borderRadius: BorderRadius.circular(4),
+                                  color: _paleBlue,
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   log.title,
-                                  style: const TextStyle(color: Colors.cyanAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(color: _primaryBlue, fontSize: 10, fontWeight: FontWeight.w700),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -252,12 +335,12 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                                   children: [
                                     Text(
                                       log.detail,
-                                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                                      style: const TextStyle(color: _textDark, fontSize: 12, height: 1.3),
                                     ),
-                                    const SizedBox(height: 2),
+                                    const SizedBox(height: 3),
                                     Text(
                                       timeStr,
-                                      style: const TextStyle(color: Colors.grey, fontSize: 10),
+                                      style: TextStyle(color: _textMuted.withValues(alpha: 0.5), fontSize: 10),
                                     ),
                                   ],
                                 ),
@@ -385,7 +468,13 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
         }
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pipeline applied to sheet!'), duration: Duration(seconds: 1)),
+        SnackBar(
+          content: const Text('Pipeline applied to sheet!'),
+          backgroundColor: _primaryBlue,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 1),
+        ),
       );
     }
   }
@@ -393,261 +482,380 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        elevation: 0,
-        leading: TextButton.icon(
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.only(left: 8),
-            foregroundColor: Colors.cyanAccent,
-          ),
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 16),
-          label: const Text('Sheet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        leadingWidth: 90,
-        title: ValueListenableBuilder<AgentStatus>(
-          valueListenable: CopilotService.agentStatusNotifier,
-          builder: (context, status, _) {
-            Color dotColor = Colors.greenAccent;
-            String statusText = 'Ready';
-
-            switch (status) {
-              case AgentStatus.thinking:
-                dotColor = Colors.amberAccent;
-                statusText = 'Thinking...';
-                break;
-              case AgentStatus.planning:
-                dotColor = Colors.cyanAccent;
-                statusText = 'Planning...';
-                break;
-              case AgentStatus.researching:
-                dotColor = Colors.lightBlueAccent;
-                statusText = 'Researching...';
-                break;
-              case AgentStatus.executing:
-                dotColor = Colors.orangeAccent;
-                statusText = 'Executing...';
-                break;
-              case AgentStatus.waiting:
-                dotColor = Colors.purpleAccent;
-                statusText = 'Waiting Choice';
-                break;
-              case AgentStatus.completed:
-                dotColor = Colors.greenAccent;
-                statusText = 'Completed';
-                break;
-              case AgentStatus.failed:
-                dotColor = Colors.red;
-                statusText = 'Failed';
-                break;
-              default:
-                dotColor = Colors.greenAccent;
-                statusText = 'Ready';
-                break;
-            }
-
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Sheet Copilot',
-                  style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '($statusText)',
-                  style: TextStyle(color: dotColor, fontSize: 11, fontWeight: FontWeight.w500),
-                ),
-              ],
-            );
-          },
-        ),
-        centerTitle: true,
-        actions: [
-          // Model Switcher
-          InkWell(
-            onTap: () async {
-              final newProv = _selectedProvider == 'gemini' ? 'deepseek' : 'gemini';
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('ai_agent_provider', newProv);
-              setState(() {
-                _selectedProvider = newProv;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Switched to ${newProv == 'deepseek' ? 'DeepSeek' : 'Google Gemini'}'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            },
-            borderRadius: BorderRadius.circular(6),
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: _selectedProvider == 'deepseek' ? Colors.blue.withOpacity(0.25) : Colors.amber.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: _selectedProvider == 'deepseek' ? Colors.blueAccent : Colors.amberAccent,
-                  width: 1,
-                ),
+      backgroundColor: _surfaceWhite,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(64),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [_headerBlue, _primaryBlue],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _primaryBlue.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
+            ],
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Row(
                 children: [
-                  Icon(
-                    _selectedProvider == 'deepseek' ? Icons.psychology : Icons.bolt,
-                    color: _selectedProvider == 'deepseek' ? Colors.cyanAccent : Colors.amberAccent,
-                    size: 14,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _selectedProvider == 'deepseek' ? 'DeepSeek' : 'Gemini',
-                    style: TextStyle(
-                      color: _selectedProvider == 'deepseek' ? Colors.cyanAccent : Colors.amberAccent,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                  // ── Back Button ──
+                  InkWell(
+                    onTap: () => Navigator.of(context).pop(),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text('Sheet', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                        ],
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 10),
+
+                  // ── SheetPro AI Title + Status ──
+                  Expanded(
+                    child: ValueListenableBuilder<AgentStatus>(
+                      valueListenable: CopilotService.agentStatusNotifier,
+                      builder: (context, status, _) {
+                        String statusEmoji;
+                        String statusText;
+
+                        switch (status) {
+                          case AgentStatus.thinking:
+                            statusEmoji = '🧠';
+                            statusText = 'Thinking...';
+                            break;
+                          case AgentStatus.planning:
+                            statusEmoji = '📋';
+                            statusText = 'Planning...';
+                            break;
+                          case AgentStatus.researching:
+                            statusEmoji = '🔍';
+                            statusText = 'Analyzing...';
+                            break;
+                          case AgentStatus.executing:
+                            statusEmoji = '⚡';
+                            statusText = 'Executing...';
+                            break;
+                          case AgentStatus.waiting:
+                            statusEmoji = '⏳';
+                            statusText = 'Awaiting Input';
+                            break;
+                          case AgentStatus.completed:
+                            statusEmoji = '✅';
+                            statusText = 'Completed';
+                            break;
+                          case AgentStatus.failed:
+                            statusEmoji = '❌';
+                            statusText = 'Failed';
+                            break;
+                          default:
+                            statusEmoji = '🟢';
+                            statusText = 'Ready';
+                            break;
+                        }
+
+                        return Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('✨ ', style: TextStyle(fontSize: 14)),
+                                const Text(
+                                  'SheetPro',
+                                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                                ),
+                                const SizedBox(width: 4),
+                                AnimatedBuilder(
+                                  animation: _aiBreathController,
+                                  builder: (context, child) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Color.lerp(const Color(0xFF06B6D4), const Color(0xFF8B5CF6), _aiBreathController.value)!,
+                                            Color.lerp(const Color(0xFF8B5CF6), const Color(0xFF06B6D4), _aiBreathController.value)!,
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF8B5CF6).withValues(alpha: 0.3 + _aiBreathController.value * 0.2),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Text(
+                                        'AI',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$statusEmoji $statusText',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+
+                  // ── Model Switcher (Emoji style) ──
+                  InkWell(
+                    onTap: () async {
+                      final newProv = _selectedProvider == 'gemini' ? 'deepseek' : 'gemini';
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('ai_agent_provider', newProv);
+                      setState(() {
+                        _selectedProvider = newProv;
+                      });
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Switched to ${newProv == 'deepseek' ? '🐋 DeepSeek' : '✨ Gemini'}'),
+                          backgroundColor: _primaryBlue,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      child: Text(
+                        _selectedProvider == 'deepseek' ? '🐋' : '✨',
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+
+                  // ── Action Buttons ──
+                  _headerIconButton(Icons.receipt_long_rounded, _openLogsModal),
+                  _headerIconButton(Icons.delete_outline_rounded, _clearChat),
+                  _headerIconButton(Icons.tune_rounded, () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AgentSettingsScreen()),
+                  ).then((_) => _loadPreferences())),
                 ],
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.list_alt_rounded, color: Colors.amberAccent, size: 20),
-            tooltip: 'Action Logs',
-            onPressed: _openLogsModal,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
-            tooltip: 'Clear Chat',
-            onPressed: _clearChat,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white70, size: 20),
-            tooltip: 'AI Settings',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AgentSettingsScreen()),
-            ).then((_) => _loadPreferences()),
-          ),
-        ],
+        ),
       ),
       body: Column(
         children: [
-          // If Agent is Running, show a prominent progress bar with Stop button
+          // ── Agent Progress Bar ──
           if (_isLoading)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: const Color(0xFF1E293B),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: _cardWhite,
+                border: const Border(bottom: BorderSide(color: _borderLight)),
+                boxShadow: [
+                  BoxShadow(color: _primaryBlue.withValues(alpha: 0.06), blurRadius: 8),
+                ],
+              ),
               child: Row(
                 children: [
                   const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: _primaryBlue,
+                      backgroundColor: _paleBlue,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'AI is analyzing and modifying spreadsheet...',
-                      style: TextStyle(color: Colors.cyanAccent, fontSize: 12, fontWeight: FontWeight.w500),
+                      'SheetPro AI is analyzing your spreadsheet...',
+                      style: TextStyle(color: _primaryBlue, fontSize: 12.5, fontWeight: FontWeight.w600),
                     ),
                   ),
-                  TextButton.icon(
+                  TextButton(
                     style: TextButton.styleFrom(
-                      foregroundColor: Colors.redAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      foregroundColor: Colors.red.shade500,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.stop_circle_outlined, size: 16),
-                    label: const Text('Stop', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     onPressed: _confirmStopAgent,
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.stop_circle_rounded, size: 15),
+                        SizedBox(width: 4),
+                        Text('Stop', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
 
-          // Chat Messages
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                return _buildMessageBubble(_messages[index], index == _messages.length - 1);
-              },
-            ),
-          ),
-
-          // Quick Suggestion Chips when conversation is short
-          if (_messages.length <= 2)
-            Container(
-              height: 40,
-              margin: const EdgeInsets.only(bottom: 6),
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: _quickSuggestions.length,
-                itemBuilder: (context, index) {
-                  return Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    child: ActionChip(
-                      backgroundColor: const Color(0xFF1E293B),
-                      side: BorderSide(color: Colors.white.withOpacity(0.15)),
-                      label: Text(
-                        _quickSuggestions[index],
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+          // ── Empty State / Welcome ──
+          if (_messages.isEmpty)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Animated logo
+                      AnimatedBuilder(
+                        animation: _aiBreathController,
+                        builder: (context, child) {
+                          return Container(
+                            width: 80, height: 80,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Color.lerp(_primaryBlue, _aiAccent, _aiBreathController.value)!,
+                                  Color.lerp(_aiAccent, _primaryBlue, _aiBreathController.value)!,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _primaryBlue.withValues(alpha: 0.2 + _aiBreathController.value * 0.15),
+                                  blurRadius: 24,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Text('✨', style: TextStyle(fontSize: 36)),
+                            ),
+                          );
+                        },
                       ),
-                      onPressed: () => _handleSubmitted(_quickSuggestions[index]),
-                    ),
-                  );
+                      const SizedBox(height: 24),
+                      const Text(
+                        'SheetPro AI',
+                        style: TextStyle(
+                          color: _textDark,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your intelligent spreadsheet assistant.\nAsk me to clean, calculate, format, or analyze your data.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _textMuted,
+                          fontSize: 13.5,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            // ── Chat Messages ──
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  return _buildMessageBubble(_messages[index], index == _messages.length - 1);
                 },
               ),
             ),
 
-          // Bottom Input Bar
+          // ── Bottom Input Bar ──
           Container(
             padding: EdgeInsets.only(
-              left: 12,
-              right: 12,
-              top: 8,
-              bottom: MediaQuery.of(context).padding.bottom + 8,
+              left: 14,
+              right: 14,
+              top: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 12,
             ),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(top: BorderSide(color: Colors.white10)),
+            decoration: BoxDecoration(
+              color: _cardWhite,
+              border: const Border(top: BorderSide(color: _borderLight)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, -4),
+                ),
+              ],
             ),
             child: Row(
               children: [
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
+                      color: _surfaceWhite,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.white10),
+                      border: Border.all(color: _isRecording ? Colors.red.shade300 : _borderLight, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _primaryBlue.withValues(alpha: 0.04),
+                          blurRadius: 8,
+                        ),
+                      ],
                     ),
                     child: TextField(
                       controller: _inputController,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: _textDark, fontSize: 14, fontWeight: FontWeight.w500),
                       maxLines: 4,
                       minLines: 1,
                       decoration: InputDecoration(
                         hintText: _isRecording
-                            ? '🎙️ Listening... Tap mic to stop & send'
-                            : 'Ask AI Copilot to clean, calculate, or format...',
+                            ? '🎙️ Listening... Tap mic to stop'
+                            : 'Ask SheetPro AI anything...',
                         hintStyle: TextStyle(
-                          color: _isRecording ? Colors.redAccent : Colors.grey[500],
-                          fontSize: 13,
-                          fontWeight: _isRecording ? FontWeight.bold : FontWeight.normal,
+                          color: _isRecording ? Colors.red.shade400 : _textMuted,
+                          fontSize: 13.5,
+                          fontWeight: _isRecording ? FontWeight.w600 : FontWeight.w400,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                         border: InputBorder.none,
                       ),
                       onSubmitted: _handleSubmitted,
@@ -656,29 +864,32 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                 ),
                 const SizedBox(width: 8),
 
-                // Whisper Voice Mic
+                // ── Voice Mic ──
                 AnimatedBuilder(
                   animation: _micPulseController,
                   builder: (context, child) {
-                    final scale = 1.0 + (_micPulseController.value * 0.25);
+                    final scale = 1.0 + (_micPulseController.value * 0.2);
                     return Transform.scale(
                       scale: _isRecording ? scale : 1.0,
                       child: Container(
-                        width: 42,
-                        height: 42,
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _isRecording ? Colors.redAccent : const Color(0xFF0F172A),
-                          border: Border.all(color: _isRecording ? Colors.redAccent : Colors.white10),
+                          color: _isRecording ? Colors.red.shade500 : _surfaceWhite,
+                          border: Border.all(
+                            color: _isRecording ? Colors.red.shade400 : _borderLight,
+                            width: 1.5,
+                          ),
                           boxShadow: _isRecording
-                              ? [BoxShadow(color: Colors.redAccent.withOpacity(0.8), blurRadius: 10, spreadRadius: 2)]
+                              ? [BoxShadow(color: Colors.red.shade300.withValues(alpha: 0.5), blurRadius: 12, spreadRadius: 2)]
                               : null,
                         ),
                         child: IconButton(
                           padding: EdgeInsets.zero,
                           icon: Icon(
                             _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
-                            color: _isRecording ? Colors.white : Colors.cyanAccent,
+                            color: _isRecording ? Colors.white : _primaryBlue,
                             size: 20,
                           ),
                           onPressed: _toggleRecording,
@@ -689,23 +900,33 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                 ),
                 const SizedBox(width: 8),
 
-                // Send Button
+                // ── Send Button ──
                 Container(
-                  width: 42,
-                  height: 42,
-                  decoration: const BoxDecoration(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.cyanAccent,
+                    gradient: const LinearGradient(
+                      colors: [_primaryBlue, _lightBlue],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primaryBlue.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: IconButton(
                     padding: EdgeInsets.zero,
                     icon: _isLoading
                         ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F172A)),
+                            width: 18, height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.send_rounded, color: Color(0xFF0F172A), size: 20),
+                        : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
                     onPressed: _isLoading ? null : () => _handleSubmitted(_inputController.text),
                   ),
                 ),
@@ -713,6 +934,22 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _headerIconButton(IconData icon, VoidCallback onPressed) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: IconButton(
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.white.withValues(alpha: 0.1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.all(8),
+          minimumSize: const Size(36, 36),
+        ),
+        icon: Icon(icon, color: Colors.white.withValues(alpha: 0.85), size: 18),
+        onPressed: onPressed,
       ),
     );
   }
@@ -727,115 +964,152 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!isUser) ...[
+            // ── AI Avatar ──
             Container(
-              width: 32,
-              height: 32,
+              width: 36,
+              height: 36,
               margin: const EdgeInsets.only(right: 10, top: 2),
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Colors.cyan, Colors.blueAccent],
+                  colors: [_primaryBlue, _aiAccent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryBlue.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 18),
+              child: const Center(
+                child: Text('✨', style: TextStyle(fontSize: 18)),
+              ),
             ),
           ],
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: isUser ? const Color(0xFF2563EB) : const Color(0xFF1E293B),
+                color: isUser ? _primaryBlue : _cardWhite,
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
+                  topLeft: const Radius.circular(20),
+                  topRight: const Radius.circular(20),
+                  bottomLeft: Radius.circular(isUser ? 20 : 6),
+                  bottomRight: Radius.circular(isUser ? 6 : 20),
                 ),
-                border: Border.all(
-                  color: isUser ? Colors.transparent : Colors.white10,
-                ),
+                border: isUser ? null : Border.all(color: _borderLight),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
+                    color: isUser
+                        ? _primaryBlue.withValues(alpha: 0.2)
+                        : Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Sender Header & Copy Button
+                  // ── Sender Header ──
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        isUser ? 'You' : 'Sheet Copilot',
+                        isUser ? '👤 You' : '✨ SheetPro AI',
                         style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isUser ? Colors.white70 : Colors.cyanAccent,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: isUser ? Colors.white.withValues(alpha: 0.75) : _primaryBlue,
                         ),
                       ),
                       InkWell(
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: msg.text));
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Copied to clipboard!'), duration: Duration(seconds: 1)),
+                            SnackBar(
+                              content: const Text('📋 Copied to clipboard'),
+                              backgroundColor: _primaryBlue,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              duration: const Duration(seconds: 1),
+                            ),
                           );
                         },
-                        child: const Padding(
-                          padding: EdgeInsets.all(2),
-                          child: Icon(Icons.content_copy_rounded, size: 13, color: Colors.white60),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.content_copy_rounded,
+                            size: 13,
+                            color: isUser ? Colors.white.withValues(alpha: 0.5) : _textMuted.withValues(alpha: 0.5),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
 
-                  // Message Content
+                  // ── Message Content ──
                   SelectableText(
                     msg.text,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: isUser ? Colors.white : _textDark,
                       fontSize: 13.5,
-                      height: 1.4,
+                      height: 1.5,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
 
-                  // Pipeline Execution Card
+                  // ── Pipeline Execution Card ──
                   if (msg.aiResponse?.pipeline != null) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white10),
+                        color: _surfaceWhite,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _borderLight),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (msg.aiResponse!.planSummary.isNotEmpty) ...[
-                            Text(
-                              'Plan: ${msg.aiResponse!.planSummary}',
-                              style: const TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                const Icon(Icons.route_rounded, color: _primaryBlue, size: 14),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    msg.aiResponse!.planSummary,
+                                    style: const TextStyle(color: _primaryBlue, fontSize: 11.5, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 10),
                           ],
                           SizedBox(
                             width: double.infinity,
-                            height: 32,
+                            height: 36,
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: msg.isExecuted ? Colors.grey[700] : const Color(0xFF107C41),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                backgroundColor: msg.isExecuted ? const Color(0xFF94A3B8) : _primaryBlue,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: msg.isExecuted ? 0 : 2,
                               ),
                               onPressed: msg.isExecuted ? null : () => _applyPipeline(msg),
-                              icon: Icon(msg.isExecuted ? Icons.check_circle : Icons.play_arrow_rounded, size: 16, color: Colors.white),
+                              icon: Icon(
+                                msg.isExecuted ? Icons.check_circle_rounded : Icons.play_arrow_rounded,
+                                size: 16,
+                              ),
                               label: Text(
-                                msg.isExecuted ? 'Applied to Sheet' : 'Execute Plan on Sheet',
-                                style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                                msg.isExecuted ? 'Applied ✓' : '▶ Execute on Sheet',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                               ),
                             ),
                           ),
@@ -844,54 +1118,57 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
                     ),
                   ],
 
-                  // Interactive Choice Cards (ask_user_question e.g. Tally/ERP Confirmation)
+                  // ── Interactive Choice Cards ──
                   if (msg.aiResponse?.questionPayload != null) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
+                        color: _surfaceWhite,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _paleBlue),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.help_outline_rounded, color: Colors.cyanAccent, size: 14),
-                              SizedBox(width: 6),
-                              Text(
+                              const Text('💡', style: TextStyle(fontSize: 13)),
+                              const SizedBox(width: 6),
+                              const Text(
                                 'Select your choice:',
-                                style: TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                                style: TextStyle(color: _primaryBlue, fontSize: 12, fontWeight: FontWeight.w700),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
+                            spacing: 8,
+                            runSpacing: 8,
                             children: msg.aiResponse!.questionPayload!.options.map((opt) {
                               final isDefault = opt == msg.aiResponse!.questionPayload!.defaultOption;
                               return InkWell(
                                 onTap: () => _handleSubmitted(opt),
-                                borderRadius: BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(10),
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                   decoration: BoxDecoration(
-                                    color: isDefault ? Colors.cyan[900] : const Color(0xFF1E293B),
-                                    borderRadius: BorderRadius.circular(6),
+                                    color: isDefault ? _paleBlue : _cardWhite,
+                                    borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
-                                      color: isDefault ? Colors.cyanAccent : Colors.white24,
-                                      width: isDefault ? 1.2 : 0.8,
+                                      color: isDefault ? _primaryBlue : _borderLight,
+                                      width: isDefault ? 1.5 : 1,
                                     ),
+                                    boxShadow: isDefault
+                                        ? [BoxShadow(color: _primaryBlue.withValues(alpha: 0.1), blurRadius: 6)]
+                                        : null,
                                   ),
                                   child: Text(
                                     opt,
                                     style: TextStyle(
-                                      color: isDefault ? Colors.cyanAccent : Colors.white,
-                                      fontSize: 11.5,
-                                      fontWeight: isDefault ? FontWeight.bold : FontWeight.normal,
+                                      color: isDefault ? _primaryBlue : _textDark,
+                                      fontSize: 12,
+                                      fontWeight: isDefault ? FontWeight.w700 : FontWeight.w500,
                                     ),
                                   ),
                                 ),
@@ -907,15 +1184,27 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
             ),
           ),
           if (isUser) ...[
+            // ── User Avatar ──
             Container(
-              width: 32,
-              height: 32,
+              width: 36,
+              height: 36,
               margin: const EdgeInsets.only(left: 10, top: 2),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF3B82F6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_lightBlue, Colors.blue.shade600],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: _lightBlue.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
+              child: const Icon(Icons.person_rounded, color: Colors.white, size: 20),
             ),
           ],
         ],
