@@ -249,6 +249,13 @@ When cleaning data in the sheet:
 - `isolate_subtotals`: Eliminates subtotal/divider noise.
 - `find_clusters`: OpenRefine-style fuzzy clustering for typos.
 - `task_complete`: ONLY when ALL work is verified and done.
+
+=== 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
+- You have a default budget of 40 iterations. You have plenty of time.
+- 6-RETRY LIMIT: If any column, script, or operation fails or does not fix the problem within 5-6 attempts, STOP RETRYING IT!
+- NEVER GET STUCK: If an issue on one column is stubborn or difficult, IMMEDIATELY MOVE ON to clean the next dirty columns in the sheet.
+- After 6 attempts on a single target, the circuit breaker will permanently lock that target and force you to move on.
+- When all other workable columns are cleaned, call `task_complete`.
 """ : """
 To apply changes, modifications, or formulas to the spreadsheet, you MUST include an executable JSON block in your response formatted exactly as:
 ```json
@@ -275,7 +282,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
 
-    // Dynamically scale iterations based on column count: 8 base + 2 per column (min 15, max 45)
+    // Default iterations = 40 (auto-scales up if sheet has many columns: 40 + extra columns * 2)
     int colCount = 1;
     final maxColStr = (initialGrid['max_column_letter'] ?? 'A').toString().toUpperCase();
     if (maxColStr.isNotEmpty) {
@@ -287,10 +294,48 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
         }
       }
     }
-    final dynamicIterations = (8 + (colCount * 2)).clamp(15, 45);
-    int maxIterations = supportsTools ? dynamicIterations : 1;
+    int dynamicIterations = 40;
+    if (colCount > 15) {
+      dynamicIterations = 40 + ((colCount - 15) * 2);
+    }
+    int maxIterations = supportsTools ? dynamicIterations.clamp(40, 80) : 1;
     CopilotService.totalStepsNotifier.value = maxIterations;
-    debugPrint("[DeepSeekService] Calculated dynamic maxIterations: $maxIterations for $colCount columns (maxCol: $maxColStr)");
+    debugPrint("[DeepSeekService] Calculated maxIterations: $maxIterations (default: 40) for $colCount columns (maxCol: $maxColStr)");
+
+    // Target attempt tracker for Circuit Breaker (6-retry limit)
+    final Map<String, int> targetAttempts = {};
+
+    String extractTargetKey(String toolName, Map<String, dynamic> toolArgs) {
+      if (toolArgs.containsKey('column') || toolArgs.containsKey('column_letter')) {
+        final c = (toolArgs['column'] ?? toolArgs['column_letter'])?.toString().toUpperCase();
+        if (c != null && c.isNotEmpty) return "col_$c";
+      }
+      if (toolName == 'build_pipeline') {
+        final plan = toolArgs['plan_summary']?.toString() ?? '';
+        final exp = toolArgs['explanation']?.toString() ?? '';
+        final match = RegExp(r'\b(?:col|column|Range)\s*[:(]?\s*([A-Z])\b', caseSensitive: false).firstMatch('$plan $exp');
+        if (match != null) {
+          return "col_${match.group(1)!.toUpperCase()}";
+        }
+        final pipeline = toolArgs['pipeline'] as Map?;
+        final steps = (pipeline?['steps'] as List?) ?? (toolArgs['steps'] as List?) ?? [];
+        for (var step in steps) {
+          if (step is Map) {
+            final col = step['column'] ?? step['column_letter'];
+            if (col != null) return "col_${col.toString().toUpperCase()}";
+            final script = step['script']?.toString() ?? '';
+            final scriptMatch = RegExp(r"['\x22]([A-Z])['\x22]|([A-Z])\d+", caseSensitive: false).firstMatch(script);
+            if (scriptMatch != null) {
+              final f = scriptMatch.group(1) ?? scriptMatch.group(2);
+              if (f != null && f.isNotEmpty) return "col_${f.toUpperCase()}";
+            }
+          }
+        }
+        final pSub = plan.length > 20 ? plan.substring(0, 20) : plan;
+        return "plan_${pSub.toLowerCase().replaceAll(RegExp(r'\s+'), '_')}";
+      }
+      return toolName;
+    }
 
     for (int i = 0; i < maxIterations; i++) {
       if (_isCancelled) {
@@ -299,6 +344,14 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
         return CopilotResponse.withError("Task stopped by user");
       }
       debugPrint("[DeepSeekService] Loop iteration ${i + 1}/$maxIterations");
+
+      // Dynamic self-extension: if AI is actively making progress across columns and nearing limit
+      if (i >= maxIterations - 3 && targetAttempts.keys.length >= 3 && maxIterations < 80) {
+        maxIterations += 10;
+        CopilotService.totalStepsNotifier.value = maxIterations;
+        debugPrint("[DeepSeekService] Auto-extended iterations by +10 (new limit: $maxIterations) as AI is actively cleaning remaining columns.");
+        CopilotService.addActionLog('Budget Extended', 'Auto-added +10 iterations to finish remaining columns.');
+      }
 
       try {
         final payload = <String, dynamic>{
@@ -359,8 +412,20 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
             debugPrint("[DeepSeekService] Tool Call: $name, args: $args");
             dynamic toolResult;
 
-            try {
-              if (_modularTools.any((t) => t.name == name)) {
+            final targetKey = extractTargetKey(name, args);
+            final attempts = (targetAttempts[targetKey] ?? 0) + 1;
+            targetAttempts[targetKey] = attempts;
+
+            if (attempts >= 6 && name != 'task_complete' && name != 'understand_sheet') {
+              debugPrint("[DeepSeekService/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing AI to move on.");
+              CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
+              toolResult = {
+                "status": "BLOCKED_CIRCUIT_BREAKER",
+                "warning": "CIRCUIT BREAKER TRIGGERED: You have attempted to modify or inspect '$targetKey' 6 times without completing the sheet. To prevent getting stuck in a loop, further actions on '$targetKey' are now LOCKED. You MUST immediately move on to clean OTHER dirty columns in the sheet (e.g. check other columns A to Z) or call 'task_complete' if other columns are done. DO NOT attempt to touch '$targetKey' again!"
+              };
+            } else {
+              try {
+                if (_modularTools.any((t) => t.name == name)) {
                 final tool = _modularTools.firstWhere((t) => t.name == name);
                 CopilotService.updateStatus(AgentStatus.executing);
                 final res = await tool.execute(args);
@@ -552,6 +617,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
               debugPrint("[DeepSeekService] Error executing tool $name: $toolError");
               toolResult = {"status": "ERROR", "error": toolError.toString()};
             }
+          }
 
             messages.add({
               "role": "tool",

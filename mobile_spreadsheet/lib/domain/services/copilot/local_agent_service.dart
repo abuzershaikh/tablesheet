@@ -870,6 +870,13 @@ The pivot table will be rendered with colorful headers, alternating row colors, 
 
 Pipeline MUST have {"steps": [...]}. Example:
 {"steps": [{"action": "fill_data", "startRow": 1, "startColumn": 4, "values": [["=SUM(A2:D2)"]]}]}
+
+=== 6-RETRY SKIP RULE & UNSTUCK PROTOCOL ===
+- You have a default budget of 40 iterations.
+- 6-RETRY LIMIT: If any column, script, or formula fails or requires multiple fixes, you are allowed MAXIMUM 5-6 attempts on that specific column/problem.
+- NEVER GET STUCK: If an issue on one column is stubborn, IMMEDIATELY MOVE ON to clean the next dirty columns in the sheet.
+- After 6 attempts on a single target, the circuit breaker will permanently lock that target and force you to move on.
+- When all other workable columns are cleaned, call `task_complete`.
 """;
 
 
@@ -1102,10 +1109,48 @@ Pipeline MUST have {"steps": [...]}. Example:
         }
       }
     }
-    final dynamicIterations = (8 + (colCount * 2)).clamp(15, 45);
-    int maxIterations = continuousLoopEnabled ? dynamicIterations : 5;
+    int dynamicIterations = 40;
+    if (colCount > 15) {
+      dynamicIterations = 40 + ((colCount - 15) * 2);
+    }
+    int maxIterations = continuousLoopEnabled ? dynamicIterations.clamp(40, 80) : 5;
     CopilotService.totalStepsNotifier.value = maxIterations;
-    debugPrint("[CopilotAgent] Calculated dynamic maxIterations: $maxIterations for $colCount columns (maxCol: $maxColStr)");
+    debugPrint("[CopilotAgent] Calculated maxIterations: $maxIterations (default: 40) for $colCount columns (maxCol: $maxColStr)");
+
+    // Target attempt tracker for Circuit Breaker (6-retry limit)
+    final Map<String, int> targetAttempts = {};
+
+    String extractTargetKey(String toolName, Map<String, dynamic> toolArgs) {
+      if (toolArgs.containsKey('column') || toolArgs.containsKey('column_letter')) {
+        final c = (toolArgs['column'] ?? toolArgs['column_letter'])?.toString().toUpperCase();
+        if (c != null && c.isNotEmpty) return "col_$c";
+      }
+      if (toolName == 'build_pipeline') {
+        final plan = toolArgs['plan_summary']?.toString() ?? '';
+        final exp = toolArgs['explanation']?.toString() ?? '';
+        final match = RegExp(r'\b(?:col|column|Range)\s*[:(]?\s*([A-Z])\b', caseSensitive: false).firstMatch('$plan $exp');
+        if (match != null) {
+          return "col_${match.group(1)!.toUpperCase()}";
+        }
+        final pipeline = toolArgs['pipeline'] as Map?;
+        final steps = (pipeline?['steps'] as List?) ?? (toolArgs['steps'] as List?) ?? [];
+        for (var step in steps) {
+          if (step is Map) {
+            final col = step['column'] ?? step['column_letter'];
+            if (col != null) return "col_${col.toString().toUpperCase()}";
+            final script = step['script']?.toString() ?? '';
+            final scriptMatch = RegExp(r"['\x22]([A-Z])['\x22]|([A-Z])\d+", caseSensitive: false).firstMatch(script);
+            if (scriptMatch != null) {
+              final f = scriptMatch.group(1) ?? scriptMatch.group(2);
+              if (f != null && f.isNotEmpty) return "col_${f.toUpperCase()}";
+            }
+          }
+        }
+        final pSub = plan.length > 20 ? plan.substring(0, 20) : plan;
+        return "plan_${pSub.toLowerCase().replaceAll(RegExp(r'\s+'), '_')}";
+      }
+      return toolName;
+    }
 
     Map<String, dynamic>? buildPipelineArgs;
     Map<String, dynamic>? taskCompleteArgs;
@@ -1120,6 +1165,14 @@ Pipeline MUST have {"steps": [...]}. Example:
       debugPrint("[CopilotAgent] === Iteration ${i + 1}/$maxIterations ===");
       CopilotService.progressStepNotifier.value = i + 1;
       if (i == 0) CopilotService.updateStatus(AgentStatus.planning);
+
+      // Dynamic self-extension: if AI is actively making progress across columns and nearing limit
+      if (i >= maxIterations - 3 && targetAttempts.keys.length >= 3 && maxIterations < 80) {
+        maxIterations += 10;
+        CopilotService.totalStepsNotifier.value = maxIterations;
+        debugPrint("[CopilotAgent] Auto-extended iterations by +10 (new limit: $maxIterations) as AI is actively cleaning remaining columns.");
+        CopilotService.addActionLog('Budget Extended', 'Auto-added +10 iterations to finish remaining columns.');
+      }
 
       final currentContents = _sanitizeMemoryHistory(_persistentMemoryHistory);
 
@@ -1173,6 +1226,28 @@ Pipeline MUST have {"steps": [...]}. Example:
             final args = (functionCall['args'] != null) ? Map<String, dynamic>.from(functionCall['args']) : <String, dynamic>{};
 
             debugPrint("[CopilotAgent] Function call: $name");
+
+            final targetKey = extractTargetKey(name, args);
+            final attempts = (targetAttempts[targetKey] ?? 0) + 1;
+            targetAttempts[targetKey] = attempts;
+
+            if (attempts >= 6 && name != 'task_complete' && name != 'understand_sheet') {
+              debugPrint("[CopilotAgent/CircuitBreaker] Target '$targetKey' reached 6 attempts! Blocking and forcing Gemini to move on.");
+              CopilotService.addActionLog('Circuit Breaker', 'Skipped $targetKey (max 6 attempts reached) ➔ Moving to other columns.');
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {
+                    "name": name,
+                    "content": {
+                      "status": "BLOCKED_CIRCUIT_BREAKER",
+                      "warning": "CIRCUIT BREAKER TRIGGERED: You have attempted to modify or inspect '$targetKey' 6 times without completing the sheet. Further actions on '$targetKey' are now LOCKED. You MUST immediately move on to clean OTHER dirty columns in the sheet (e.g. check other columns A to Z) or call 'task_complete' if other columns are done. DO NOT attempt to touch '$targetKey' again!"
+                    }
+                  }
+                }
+              });
+              continue;
+            }
 
             try {
               if (_modularTools.any((t) => t.name == name)) {
