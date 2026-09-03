@@ -20,6 +20,7 @@
 #include "email_cleaner.h"
 #include "date_cleaner.h"
 #include "mojibake_cleaner.h"
+#include "extreme_cleaning_engine.h"
 
 namespace Filters {
 

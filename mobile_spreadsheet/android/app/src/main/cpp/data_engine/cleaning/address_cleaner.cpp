@@ -202,6 +202,8 @@ ParsedAddress AddressCleaner::parse(const std::string& rawAddress) const {
         }
     }
 
+    addr.rawAddress = rawAddress;
+    addr.cleanAddress = rawAddress;
     addr.isValid = !addr.city.empty() || !addr.pincode.empty() || !addr.street.empty() || !addr.building.empty();
     return addr;
 }

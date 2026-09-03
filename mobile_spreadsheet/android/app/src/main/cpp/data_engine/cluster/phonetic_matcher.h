@@ -25,7 +25,7 @@ public:
     }
 
     /// Computes standard 4-character American Soundex code (e.g. S530)
-    std::string soundex(const std::string& input) const;
+    static std::string soundex(const std::string& input);
 
     /// Computes Metaphone phonetic pronunciation code
     std::string metaphone(const std::string& input) const;

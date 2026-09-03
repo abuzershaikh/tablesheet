@@ -30,6 +30,14 @@
 
 namespace Filters {
 
+enum class DateOutputFormat {
+    ISO_YYYY_MM_DD,     // 2024-05-12
+    DD_MM_YYYY,         // 12-05-2024
+    MM_DD_YYYY,         // 05/12/2024
+    DD_MMM_YYYY,        // 12 May 2024
+    YYYY_MM_DD_SLASH    // 2024/05/12
+};
+
 enum class DateFormatPreference {
     AUTO_DETECT, // Use column vote or local default
     PREFER_DMY,  // DD/MM/YYYY (Indian/European standard)
@@ -74,6 +82,12 @@ public:
     /// Clean entire column using collective column-level format consensus
     std::vector<std::string> cleanColumn(const std::vector<std::string>& columnValues,
                                          DateOutputFormat targetFormat = DateOutputFormat::ISO_YYYY_MM_DD) const;
+
+    /// Alias for cleanColumn
+    std::vector<std::string> cleanColumnConsensus(const std::vector<std::string>& columnValues,
+                                                  DateOutputFormat targetFormat = DateOutputFormat::ISO_YYYY_MM_DD) const {
+        return cleanColumn(columnValues, targetFormat);
+    }
 
     /// Normalize with default DD-MM-YYYY (India / International standard)
     std::string normalizeToDDMMYYYY(const std::string& rawDate) const;

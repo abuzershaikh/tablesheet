@@ -16,6 +16,7 @@
 #pragma once
 #include "../cache/column_metadata.h"
 #include <string>
+#include <vector>
 
 namespace Filters {
 
@@ -37,6 +38,18 @@ public:
      * Use this when type is unknown.
      */
     std::string autoClean(const std::string& value) const;
+
+    /**
+     * Clean a column of values using autoClean.
+     */
+    std::vector<std::string> cleanColumn(const std::vector<std::string>& values) const {
+        std::vector<std::string> result;
+        result.reserve(values.size());
+        for (const auto& v : values) {
+            result.push_back(autoClean(v));
+        }
+        return result;
+    }
 
 private:
     DataCleaner() = default;

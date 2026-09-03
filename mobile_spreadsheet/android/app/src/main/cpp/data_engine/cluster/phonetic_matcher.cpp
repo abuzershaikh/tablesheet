@@ -40,7 +40,7 @@ char PhoneticMatcher::getSoundexDigit(char c) {
     }
 }
 
-std::string PhoneticMatcher::soundex(const std::string& input) const {
+std::string PhoneticMatcher::soundex(const std::string& input) {
     std::string s = cleanAlphaOnly(input);
     if (s.empty()) return "0000";
 

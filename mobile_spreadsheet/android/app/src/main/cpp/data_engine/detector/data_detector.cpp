@@ -77,9 +77,26 @@ class DateDetector : public IDataDetectorPlugin {
 public:
     float detect(const std::string& val) const override {
         if (val.empty()) return 0.0f;
+
+        // A plain number without date delimiters (/ - space) is a NUMBER, not a Date!
+        // (Except 8-digit compact dates YYYYMMDD like 20240512)
+        bool hasDelimiter = (val.find('/') != std::string::npos ||
+                             val.find('-') != std::string::npos ||
+                             val.find(' ') != std::string::npos);
+
+        if (!hasDelimiter) {
+            std::string digits;
+            for (char c : val) if (std::isdigit(static_cast<unsigned char>(c))) digits += c;
+            if (digits.length() == 8 && (digits.substr(0, 2) == "19" || digits.substr(0, 2) == "20")) {
+                ParsedDate parsed = DateCleaner::getInstance().parse(val);
+                if (parsed.isValid) return 0.85f;
+            }
+            return 0.0f; // Pure numbers/decimals are NOT dates
+        }
+
         ParsedDate parsed = DateCleaner::getInstance().parse(val);
         if (parsed.isValid) {
-            // High confidence for well-formed dates
+            // High confidence for well-formed dates with delimiters
             return 0.95f;
         }
         return 0.0f;

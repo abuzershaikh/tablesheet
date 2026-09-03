@@ -6,6 +6,7 @@
 #include "extreme_cleaning_engine.h"
 #include "email_cleaner.h"
 #include "text_cleaner.h"
+#include "date_cleaner.h"
 #include <regex>
 #include <algorithm>
 #include <sstream>
@@ -311,11 +312,7 @@ void ExtremeCleaningEngine::capOutliersIQR(std::vector<double>& values, double m
         else if (val > upperBound) val = upperBound;
     }
 }
-
-#include "date_cleaner.h"
-
-namespace Filters {
-
+ 
 std::string ExtremeCleaningEngine::standardizeDate(const std::string& rawDate) {
     if (rawDate.empty()) return "";
     return DateCleaner::getInstance().clean(rawDate, DateOutputFormat::ISO_YYYY_MM_DD);

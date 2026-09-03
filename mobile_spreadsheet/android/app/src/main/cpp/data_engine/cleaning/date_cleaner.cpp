@@ -467,23 +467,12 @@ ParsedDate DateCleaner::parse(const std::string& rawDate, DateFormatPreference p
 
     if (s.empty()) return res;
 
-    // Check for Excel Serial number (e.g. "45424" or "45424.5")
     bool allNumeric = true;
-    int dotCount = 0;
     for (char c : s) {
-        if (c == '.') dotCount++;
-        else if (!std::isdigit(static_cast<unsigned char>(c))) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
             allNumeric = false;
             break;
         }
-    }
-    if (allNumeric && (s.length() == 5 || s.length() == 6 || (s.length() > 6 && dotCount == 1))) {
-        try {
-            double serial = std::stod(s);
-            if (serial >= 1.0 && serial <= 2958465.0) {
-                return parseExcelSerial(serial, rawDate);
-            }
-        } catch (...) {}
     }
 
     // Check for compact digits (e.g. 20240512 or 12052024)

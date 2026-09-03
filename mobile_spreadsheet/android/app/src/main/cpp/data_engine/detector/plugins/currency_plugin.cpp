@@ -12,7 +12,7 @@
 #include <cctype>
 #include <stdexcept>
 
-#include "../cleaning/extreme_cleaning_engine.h"
+#include "../../cleaning/extreme_cleaning_engine.h"
 #include <algorithm>
 
 namespace Filters {

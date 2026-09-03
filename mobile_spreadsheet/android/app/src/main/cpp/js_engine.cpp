@@ -1573,7 +1573,16 @@ static JSValue js_sheet_normalizeDates(JSContext *ctx, JSValueConst this_val, in
         else values.push_back("");
     }
 
-    auto cleaned = Filters::DateCleaner::getInstance().cleanColumnConsensus(values, outFmt);
+    Filters::DateOutputFormat targetFmt = Filters::DateOutputFormat::ISO_YYYY_MM_DD;
+    if (outFmt == "DD-MM-YYYY" || outFmt == "DD/MM/YYYY") {
+        targetFmt = Filters::DateOutputFormat::DD_MM_YYYY;
+    } else if (outFmt == "MM/DD/YYYY" || outFmt == "MM-DD-YYYY") {
+        targetFmt = Filters::DateOutputFormat::MM_DD_YYYY;
+    } else if (outFmt == "DD MMM YYYY" || outFmt == "DD-MMM-YYYY") {
+        targetFmt = Filters::DateOutputFormat::DD_MMM_YYYY;
+    }
+
+    auto cleaned = Filters::DateCleaner::getInstance().cleanColumnConsensus(values, targetFmt);
     int count = 0;
     for (size_t i = 0; i < cleaned.size(); ++i) {
         if (!cleaned[i].empty() && cleaned[i] != values[i]) {

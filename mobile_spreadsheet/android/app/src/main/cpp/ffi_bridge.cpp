@@ -1254,8 +1254,17 @@ FFI_EXPORT const char* native_cleanColumn(const char* columnLetter) {
             if (std::holds_alternative<std::string>(evalRes)) {
                 rawVal = std::get<std::string>(evalRes);
             } else if (std::holds_alternative<double>(evalRes)) {
-                // Numeric cells don't need text cleaning
-                skippedCount++; continue;
+                double d = std::get<double>(evalRes);
+                if (std::isnan(d) || std::isinf(d)) {
+                    skippedCount++; continue;
+                }
+                if (d == std::floor(d)) {
+                    rawVal = std::to_string(static_cast<long long>(d));
+                } else {
+                    std::ostringstream ss;
+                    ss << d;
+                    rawVal = ss.str();
+                }
             } else {
                 skippedCount++; continue;
             }
@@ -1727,7 +1736,7 @@ char* apply_grid_row_alignment() {
                     temp = (temp - 1) / 26;
                 }
                 std::string ref = colName + std::to_string(r);
-                GridManager::getInstance().setCell(ref, aligned[r][c]);
+                GridManager::getInstance().setCellConstantString(ref, aligned[r][c]);
             }
         }
 
@@ -1787,7 +1796,7 @@ char* clean_column_dates_ffi(const char* colLetter, int targetFormat) {
         int count = 0;
         for (size_t i = 0; i < cleaned.size(); ++i) {
             if (!cleaned[i].empty() && cleaned[i] != rawValues[i]) {
-                GridManager::getInstance().setCell(cellRefs[i], cleaned[i]);
+                GridManager::getInstance().setCellConstantString(cellRefs[i], cleaned[i]);
                 count++;
             }
         }
@@ -1854,7 +1863,7 @@ char* stitch_multi_line_records_ffi() {
                         temp = (temp - 1) / 26;
                     }
                     std::string ref = colName + std::to_string(r);
-                    GridManager::getInstance().setCell(ref, stitchRes.cleanGrid[r][c]);
+                    GridManager::getInstance().setCellConstantString(ref, stitchRes.cleanGrid[r][c]);
                 }
             }
         }
@@ -1912,12 +1921,12 @@ char* demix_column_entities_ffi(const char* colLetter) {
             }
 
             // Set Header in Row 1
-            GridManager::getInstance().setCell(colName + "1", demixRes.columnHeaders[colOffset]);
+            GridManager::getInstance().setCellConstantString(colName + "1", demixRes.columnHeaders[colOffset]);
 
             // Set Data in Row 2..N
             for (size_t r = 0; r < demixRes.matrix.size(); ++r) {
                 if (!demixRes.matrix[r][colOffset].empty()) {
-                    GridManager::getInstance().setCell(colName + std::to_string(r + 2), demixRes.matrix[r][colOffset]);
+                    GridManager::getInstance().setCellConstantString(colName + std::to_string(r + 2), demixRes.matrix[r][colOffset]);
                 }
             }
         }
@@ -1984,7 +1993,7 @@ char* isolate_subtotals_and_clean_ffi() {
                         temp = (temp - 1) / 26;
                     }
                     std::string ref = colName + std::to_string(r);
-                    GridManager::getInstance().setCell(ref, isoRes.cleanGrid[r][c]);
+                    GridManager::getInstance().setCellConstantString(ref, isoRes.cleanGrid[r][c]);
                 }
             }
         }

@@ -35,6 +35,7 @@ struct ParsedAddress {
     std::string country = "";
     bool isValid = false;
     std::string rawAddress = "";
+    std::string cleanAddress = "";
 
     std::string toJson() const;
 };

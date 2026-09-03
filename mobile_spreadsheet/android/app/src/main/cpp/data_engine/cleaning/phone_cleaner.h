@@ -17,6 +17,11 @@ namespace Filters {
 
 class PhoneCleaner {
 public:
+    static PhoneCleaner& getInstance() {
+        static PhoneCleaner instance;
+        return instance;
+    }
+
     /**
      * Normalize a phone number string to E.164 format.
      *   "9876543210"     → "+919876543210"
@@ -25,6 +30,10 @@ public:
      *   "+1-800-555-0100" → "+18005550100" (international passthrough)
      */
     static std::string normalize(const std::string& rawPhone);
+
+    static std::string clean(const std::string& rawPhone) {
+        return normalize(rawPhone);
+    }
 };
 
 } // namespace Filters

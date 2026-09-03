@@ -415,6 +415,15 @@ ColumnAnalysisResult ColumnAnalyzer::analyze(const std::string& columnLetter,
                           lowerHeader.find("gmail") != std::string::npos ||
                           lowerHeader.find("mail") != std::string::npos);
 
+    bool headerIsNumericOrCurrency = (lowerHeader.find("revenue") != std::string::npos ||
+                                      lowerHeader.find("amount") != std::string::npos ||
+                                      lowerHeader.find("price") != std::string::npos ||
+                                      lowerHeader.find("salary") != std::string::npos ||
+                                      lowerHeader.find("cost") != std::string::npos ||
+                                      lowerHeader.find("total") != std::string::npos ||
+                                      lowerHeader.find("sales") != std::string::npos ||
+                                      lowerHeader.find("fee") != std::string::npos);
+
     int emailCount = typeCounts[DataType::EMAIL];
     float emailRatio = (result.stats.totalCells > 0) ? (float)emailCount / (float)result.stats.totalCells : 0.0f;
 
@@ -422,6 +431,10 @@ ColumnAnalysisResult ColumnAnalyzer::analyze(const std::string& columnLetter,
         result.dominantType = DataType::EMAIL;
         result.dominantTypeName = "Email";
         result.typeConfidence = (emailRatio >= 0.70f) ? emailRatio : 0.95f;
+    } else if (headerIsNumericOrCurrency && (typeCounts[DataType::CURRENCY] + typeCounts[DataType::NUMBER] > 0)) {
+        result.dominantType = (typeCounts[DataType::CURRENCY] >= typeCounts[DataType::NUMBER]) ? DataType::CURRENCY : DataType::NUMBER;
+        result.dominantTypeName = dataTypeToString(result.dominantType);
+        result.typeConfidence = 0.95f;
     } else {
         // ── Find dominant type ────────────────────────────────────────────────────
         auto maxIt = std::max_element(typeCounts.begin(), typeCounts.end(),
