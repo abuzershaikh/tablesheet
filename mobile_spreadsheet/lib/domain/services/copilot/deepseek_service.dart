@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -103,6 +104,7 @@ class DeepSeekService {
   static List<Map<String, dynamic>> _sessionMessages = [];
   static String? _waitingToolCallId;
   static String? _waitingQuestion;
+  static String? _waitingSheetId;
 
   static void cancelLoop() {
     _isCancelled = true;
@@ -113,6 +115,7 @@ class DeepSeekService {
     _sessionMessages.clear();
     _waitingToolCallId = null;
     _waitingQuestion = null;
+    _waitingSheetId = null;
   }
 
   static Map<String, dynamic>? _extractPipeline(String content) {
@@ -186,9 +189,21 @@ class DeepSeekService {
     final selectedModel = await getSelectedModel();
     debugPrint("[DeepSeekService] Starting agent loop with model: $selectedModel, sheetId: $sheetId");
 
-    CopilotService.clearActionLogs();
-    CopilotService.updateStatus(AgentStatus.thinking);
-    CopilotService.addActionLog('User Request', prompt);
+    final isResuming = _waitingSheetId != null &&
+        _waitingSheetId == sheetId &&
+        _sessionMessages.isNotEmpty &&
+        _waitingToolCallId != null;
+
+    if (isResuming) {
+      debugPrint("[DeepSeekService] Resuming session waiting for '$_waitingQuestion' on sheet '$sheetId' with user answer: '$prompt'");
+      CopilotService.updateStatus(AgentStatus.executing);
+      CopilotService.addActionLog('User Answer', prompt);
+    } else {
+      clearSession();
+      CopilotService.clearActionLogs();
+      CopilotService.updateStatus(AgentStatus.thinking);
+      CopilotService.addActionLog('User Request', prompt);
+    }
 
     await LocalAgentService.syncStorageToNative(sheetId);
 
@@ -341,21 +356,27 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
 """;
 
     final messages = <Map<String, dynamic>>[];
-    if (_sessionMessages.isNotEmpty && _waitingToolCallId != null) {
-      debugPrint("[DeepSeekService] Resuming session waiting for '$_waitingQuestion' with user answer: '$prompt'");
+    if (isResuming) {
       messages.addAll(_sessionMessages);
+      // Tool response containing user's choice/decision
       messages.add({
         "role": "tool",
         "tool_call_id": _waitingToolCallId!,
-        "content": jsonEncode({"status": "SUCCESS", "user_choice": prompt, "answer": prompt}),
+        "content": jsonEncode({
+          "status": "SUCCESS",
+          "user_decision": prompt,
+          "user_choice": prompt,
+          "answer": prompt,
+          "instruction": "The user chose: \"$prompt\". Proceed immediately to execute the next tool steps according to this decision (e.g. guarded_fill_down, clean_column, etc.) or call task_complete when all work is done. Do NOT reply with conversational text.",
+        }),
       });
-      messages.add({
-        "role": "user",
-        "content": "User response to your question: \"$prompt\". Please proceed with this decision and continue cleaning/processing the sheet data.",
-      });
-      _sessionMessages.clear();
+      // CRITICAL FIX: Do NOT add a role: "user" message directly after role: "tool"!
+      // In OpenAI and DeepSeek API specification, an assistant message with tool_calls must be followed
+      // only by tool messages, and then the assistant must respond. Sending a user message directly
+      // after a tool message causes an HTTP 400 Bad Request error.
       _waitingToolCallId = null;
       _waitingQuestion = null;
+      _waitingSheetId = null;
     } else {
       messages.add({"role": "system", "content": systemPrompt});
       messages.add({"role": "user", "content": prompt});
@@ -456,7 +477,7 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
             "Authorization": "Bearer ${apiKey.trim()}",
           },
           body: jsonEncode(payload),
-        );
+        ).timeout(const Duration(seconds: 45));
 
         if (response.statusCode != 200) {
           debugPrint("[DeepSeekService] API Error (${response.statusCode}): ${response.body}");
@@ -471,7 +492,16 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
           return CopilotResponse.withError("DeepSeek returned empty choices.");
         }
 
-        final message = choices[0]['message'] as Map<String, dynamic>;
+        // Sanitize assistant message so internal non-standard fields like reasoning_content
+        // are not sent back in subsequent message arrays, preventing HTTP 400 Bad Request
+        final rawMessage = choices[0]['message'] as Map<String, dynamic>;
+        final message = <String, dynamic>{
+          "role": "assistant",
+          "content": rawMessage['content'] ?? "",
+        };
+        if (rawMessage['tool_calls'] != null) {
+          message['tool_calls'] = rawMessage['tool_calls'];
+        }
         messages.add(message);
 
         final toolCalls = message['tool_calls'] as List?;
@@ -762,24 +792,30 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 CopilotService.addActionLog('Asked Question', question);
                 debugPrint("[DeepSeekService] ask_user_question: question=$question, options=$options");
 
-                // Preserve assistant function call so user's response can be fed back as tool response
-                messages.add({
-                  "role": "assistant",
-                  "content": question,
-                  "tool_calls": [
-                    {
-                      "id": toolId,
-                      "type": "function",
-                      "function": {
-                        "name": "ask_user_question",
-                        "arguments": jsonEncode(args),
-                      }
-                    }
-                  ]
-                });
+                // Note: The assistant message with tool_calls was already added to `messages`.
+                // Save session context and the toolId to resume with a matching tool response.
                 _sessionMessages = List<Map<String, dynamic>>.from(messages);
                 _waitingToolCallId = toolId;
                 _waitingQuestion = question;
+                _waitingSheetId = sheetId;
+
+                // If DeepSeek returned multiple tool calls in this turn, satisfy all subsequent tool calls
+                // with deferred responses so there are no missing tool_call_ids when resuming.
+                final currentIdx = toolCalls.indexOf(call);
+                if (currentIdx >= 0 && currentIdx < toolCalls.length - 1) {
+                  for (int nextIdx = currentIdx + 1; nextIdx < toolCalls.length; nextIdx++) {
+                    final nextCall = toolCalls[nextIdx];
+                    final nextId = nextCall['id']?.toString() ?? 'call_sub_$nextIdx';
+                    _sessionMessages.add({
+                      "role": "tool",
+                      "tool_call_id": nextId,
+                      "content": jsonEncode({
+                        "status": "DEFERRED",
+                        "message": "Deferred pending user decision on question."
+                      }),
+                    });
+                  }
+                }
 
                 return CopilotResponse(
                   success: true,
@@ -801,12 +837,10 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
                 final targetSheetName = args['sheet_name']?.toString() ?? 'Sheet2';
                 CopilotService.updateStatus(AgentStatus.executing);
                 CopilotService.addActionLog('Workbook Multi-Sheet', 'Action: $action, Target: $targetSheetName');
-                toolResult = {
-                  "status": "SUCCESS",
-                  "action": action,
-                  "active_sheet": targetSheetName,
-                  "sheets": ["Sheet1", targetSheetName]
-                };
+                toolResult = await CopilotService.executeManageSheets(
+                  action: action,
+                  sheetName: targetSheetName,
+                );
               } else if (name == 'build_pipeline') {
                 buildPipelineArgs = args;
                 CopilotService.updateStatus(AgentStatus.executing);
@@ -896,6 +930,8 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
               cleanText = "Spreadsheet changes applied successfully.";
             }
 
+            clearSession();
+            CopilotService.updateStatus(AgentStatus.completed);
             return CopilotResponse(
               success: true,
               providerUsed: 'deepseek',
@@ -906,6 +942,8 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
           }
 
           if (buildPipelineArgs != null) {
+            clearSession();
+            CopilotService.updateStatus(AgentStatus.completed);
             await LocalAgentService.syncNativeToStorage(sheetId);
             return CopilotResponse(
               success: true,
@@ -916,6 +954,8 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
             );
           }
 
+          clearSession();
+          CopilotService.updateStatus(AgentStatus.completed);
           return CopilotResponse(
             success: true,
             providerUsed: 'deepseek',
@@ -927,6 +967,10 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
       } catch (e) {
         debugPrint("[DeepSeekService] Exception in loop: $e");
         final errStr = e.toString();
+        CopilotService.updateStatus(AgentStatus.failed);
+        if (e is TimeoutException || errStr.contains('TimeoutException') || errStr.contains('timed out')) {
+          return CopilotResponse.withError("DeepSeek Request Timed Out (45s). Please check your internet connection and try again.");
+        }
         if (errStr.contains('Failed host lookup') || errStr.contains('SocketException') || errStr.contains('Network is unreachable') || errStr.contains('errno = 7')) {
           return CopilotResponse.withError("Network Error: No internet connection. Please check your Wi-Fi or Mobile Data connection on your device.");
         }

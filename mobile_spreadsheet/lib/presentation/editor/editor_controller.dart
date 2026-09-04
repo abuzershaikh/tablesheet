@@ -593,6 +593,21 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Delete a sheet
+  void deleteSheet(int index) {
+    if (_spreadsheet == null || index < 0 || index >= _spreadsheet!.sheets.length || _spreadsheet!.sheets.length <= 1) return;
+    
+    final sheets = List<SheetEntity>.from(_spreadsheet!.sheets);
+    final targetSheet = sheets.removeAt(index);
+    _spreadsheet = _spreadsheet!.copyWith(sheets: sheets);
+    
+    if (_currentSheet?.sheetId == targetSheet.sheetId) {
+      switchSheet(sheets.first);
+    } else {
+      notifyListeners();
+    }
+  }
+
   /// Update viewport position
   void updateViewport(double x, double y, double zoom) {
     _scrollX = x;

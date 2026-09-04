@@ -410,6 +410,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _cellData = widget.spreadsheet.transientCellData ?? {};
     CopilotService.pipelineNotifier.addListener(_onCopilotPipelineTriggered);
     CopilotService.gridRefreshNotifier.addListener(_onAgentGridRefresh);
+    CopilotService.onManageSheets = _handleCopilotManageSheets;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final controller = context.read<EditorController>();
       controller.loadSpreadsheet(widget.spreadsheet);
@@ -464,6 +465,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     CopilotSessionService.instance.clearTab('task');
     CopilotService.clearActionLogs();
 
+    CopilotService.onManageSheets = null;
     CopilotService.gridRefreshNotifier.removeListener(_onAgentGridRefresh);
     CopilotService.pipelineNotifier.removeListener(_onCopilotPipelineTriggered);
     context.read<EditorController>().removeListener(_onControllerChanged);
@@ -473,9 +475,132 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   }
 
   /// Called whenever the AI agent modifies the native grid — refresh sheet live
+  /// Multi-sheet race guard: ONLY refresh UI if the agent's active sheet matches the currently displayed sheet!
   void _onAgentGridRefresh() {
     if (!mounted) return;
-    _gridKey.currentState?.syncFromNative();
+    final currentSheetId = context.read<EditorController>().currentSheet?.sheetId ?? widget.spreadsheet.spreadsheetId;
+    if (CopilotService.activeAgentSheetId == null || CopilotService.activeAgentSheetId == currentSheetId) {
+      _gridKey.currentState?.syncFromNative();
+    } else {
+      debugPrint("[EditorScreen] Suppressed live grid refresh: Agent is working on sheet '${CopilotService.activeAgentSheetId}', while UI is displaying '$currentSheetId'");
+    }
+  }
+
+  /// Real execution of sheet creation, switching, deletion, and listing requested by AI Agent
+  Future<Map<String, dynamic>> _handleCopilotManageSheets(String action, String sheetName) async {
+    if (!mounted) {
+      return {
+        "status": "error",
+        "error": "Editor is not active",
+      };
+    }
+    final controller = context.read<EditorController>();
+    final sheets = controller.spreadsheet?.sheets ?? widget.spreadsheet.sheets;
+
+    if (action == 'create') {
+      final currentSheet = controller.currentSheet;
+      if (currentSheet != null) {
+        await SheetDataStorage.saveCellData(currentSheet.sheetId, _cellData);
+      }
+      controller.addSheet(sheetName);
+      final newSheets = controller.spreadsheet?.sheets ?? [];
+      final createdSheet = newSheets.isNotEmpty ? newSheets.last : null;
+      final newSheetId = createdSheet?.sheetId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      await SheetDataStorage.saveCellData(newSheetId, {});
+      if (mounted) {
+        setState(() {
+          _cellData = {};
+        });
+        _gridKey.currentState?.loadNewData({});
+      }
+      _syncCopilotWorkbookContext();
+      return {
+        "status": "SUCCESS",
+        "action": "create",
+        "sheet_id": newSheetId,
+        "sheet_name": sheetName,
+        "sheets": newSheets.map((s) => s.name).toList(),
+        "message": "Sheet '$sheetName' created successfully in workbook."
+      };
+    } else if (action == 'switch') {
+      final query = sheetName.trim().toLowerCase();
+      final targetIndex = sheets.indexWhere(
+        (s) => s.sheetId.toLowerCase() == query || s.name.toLowerCase() == query
+      );
+      if (targetIndex >= 0) {
+        final currentSheet = controller.currentSheet;
+        if (currentSheet != null) {
+          await SheetDataStorage.saveCellData(currentSheet.sheetId, _cellData);
+        }
+        final targetSheet = sheets[targetIndex];
+        controller.switchSheet(targetSheet);
+        final fallbackId = targetIndex == 0 ? widget.spreadsheet.spreadsheetId : null;
+        final newData = await SheetDataStorage.loadCellData(targetSheet.sheetId, fallbackSpreadsheetId: fallbackId) ?? {};
+        if (mounted) {
+          setState(() {
+            _cellData = newData;
+          });
+          _gridKey.currentState?.loadNewData(newData);
+        }
+        _syncCopilotWorkbookContext();
+        return {
+          "status": "SUCCESS",
+          "action": "switch",
+          "active_sheet": targetSheet.name,
+          "sheet_id": targetSheet.sheetId,
+          "sheets": sheets.map((s) => s.name).toList(),
+        };
+      } else {
+        return {
+          "status": "ERROR",
+          "error": "Sheet '$sheetName' not found in workbook.",
+          "available_sheets": sheets.map((s) => s.name).toList(),
+        };
+      }
+    } else if (action == 'delete') {
+      if (sheets.length <= 1) {
+        return {
+          "status": "ERROR",
+          "error": "Cannot delete the only sheet in the workbook."
+        };
+      }
+      final query = sheetName.trim().toLowerCase();
+      final targetIndex = sheets.indexWhere(
+        (s) => s.sheetId.toLowerCase() == query || s.name.toLowerCase() == query
+      );
+      if (targetIndex >= 0) {
+        final targetSheet = sheets[targetIndex];
+        controller.deleteSheet(targetIndex);
+        final remaining = controller.spreadsheet?.sheets ?? [];
+        if (remaining.isNotEmpty) {
+          final newData = await SheetDataStorage.loadCellData(remaining.first.sheetId) ?? {};
+          if (mounted) {
+            setState(() => _cellData = newData);
+            _gridKey.currentState?.loadNewData(newData);
+          }
+        }
+        _syncCopilotWorkbookContext();
+        return {
+          "status": "SUCCESS",
+          "action": "delete",
+          "deleted_sheet": targetSheet.name,
+          "remaining_sheets": remaining.map((s) => s.name).toList(),
+        };
+      } else {
+        return {
+          "status": "ERROR",
+          "error": "Sheet '$sheetName' not found to delete.",
+          "available_sheets": sheets.map((s) => s.name).toList(),
+        };
+      }
+    } else {
+      return {
+        "status": "SUCCESS",
+        "action": "list",
+        "sheets": sheets.map((s) => s.name).toList(),
+        "active_sheet": controller.currentSheet?.name ?? 'Sheet1',
+      };
+    }
   }
 
   /// Synchronize the list of workbook sheet tabs with CopilotService so AI is multi-sheet aware

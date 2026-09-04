@@ -415,8 +415,7 @@ class _CopilotMiniViewState extends State<CopilotMiniView> with TickerProviderSt
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    // If AI is already executing a previous task, cancel it immediately so new user command takes over!
-    if (_isLoading) {
+    if (_isLoading && CopilotService.agentStatusNotifier.value != AgentStatus.waiting) {
       CopilotService.stopAgentLoop();
       await Future.delayed(const Duration(milliseconds: 100));
     }

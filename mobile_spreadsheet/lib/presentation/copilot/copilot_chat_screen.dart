@@ -411,7 +411,7 @@ class _CopilotFullScreenChatScreenState extends State<CopilotFullScreenChatScree
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    if (_isLoading) {
+    if (_isLoading && CopilotService.agentStatusNotifier.value != AgentStatus.waiting) {
       CopilotService.stopAgentLoop();
       await Future.delayed(const Duration(milliseconds: 100));
     }

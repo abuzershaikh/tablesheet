@@ -1,4 +1,5 @@
 import 'package:mobile_spreadsheet/domain/services/conditional_formatting_service.dart';
+import '../../../../services/copilot/copilot_service.dart';
 import '../copilot_tool.dart';
 
 class ConditionalFormattingTool implements CopilotTool {
@@ -47,8 +48,9 @@ class ConditionalFormattingTool implements CopilotTool {
     else if (type.contains('BETWEEN')) cfType = 'Is between';
 
     final hexClean = color.replaceAll('#', '');
+    final resolvedSheetId = args['sheet_id']?.toString() ?? CopilotService.activeAgentSheetId ?? 'Sheet1';
     final ruleJson = {
-      'sheetId': 'Sheet1',
+      'sheetId': resolvedSheetId,
       'range': rangeStr,
       'type': cfType,
       'value1': val,
@@ -62,7 +64,7 @@ class ConditionalFormattingTool implements CopilotTool {
       },
     };
 
-    ConditionalFormattingService.addRule('Sheet1', ruleJson);
+    ConditionalFormattingService.addRule(resolvedSheetId, ruleJson);
 
     return {
       'pipeline': {

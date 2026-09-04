@@ -1,5 +1,6 @@
 import 'package:mobile_spreadsheet/presentation/editor/modules/number_format/number_format_model.dart';
 import 'package:mobile_spreadsheet/presentation/editor/modules/number_format/number_format_service.dart';
+import '../../../../services/copilot/copilot_service.dart';
 import '../copilot_tool.dart';
 
 class FormatColumnTool implements CopilotTool {
@@ -48,11 +49,12 @@ class FormatColumnTool implements CopilotTool {
     }
 
     final cellKeys = <String>[];
-    for (int r = 0; r < 200; r++) {
+    for (int r = 0; r < 1000; r++) {
       cellKeys.add('$r:$colIndex');
     }
 
-    await NumberFormatService.instance.saveFormats('Sheet1', cellKeys, targetFmt);
+    final resolvedSheetId = args['sheet_id']?.toString() ?? CopilotService.activeAgentSheetId ?? 'Sheet1';
+    await NumberFormatService.instance.saveFormats(resolvedSheetId, cellKeys, targetFmt);
 
     return {
       'pipeline': {

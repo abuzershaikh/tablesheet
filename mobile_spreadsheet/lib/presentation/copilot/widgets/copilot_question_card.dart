@@ -44,10 +44,13 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
   Widget build(BuildContext context) {
     final isDark = widget.isDarkMode;
     final payload = widget.questionPayload;
-    final hasAnswered = widget.currentAnswer != null && widget.currentAnswer!.isNotEmpty;
+    final hasAnswered =
+        widget.currentAnswer != null && widget.currentAnswer!.isNotEmpty;
 
     final bgColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
-    final borderColor = isDark ? Colors.cyanAccent.withOpacity(0.4) : const Color(0xFF93C5FD);
+    final borderColor = isDark
+        ? Colors.cyanAccent.withOpacity(0.4)
+        : const Color(0xFF93C5FD);
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final subtextColor = isDark ? Colors.white70 : const Color(0xFF475569);
 
@@ -60,7 +63,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: isDark ? Colors.cyanAccent.withOpacity(0.08) : const Color(0xFF2563EB).withOpacity(0.08),
+            color: isDark
+                ? Colors.cyanAccent.withOpacity(0.08)
+                : const Color(0xFF2563EB).withOpacity(0.08),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -86,7 +91,11 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.help_outline_rounded, color: Colors.white, size: 12),
+                    const Icon(
+                      Icons.help_outline_rounded,
+                      color: Colors.white,
+                      size: 12,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       'AI Question',
@@ -103,12 +112,18 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
               const SizedBox(width: 8),
               if (!hasAnswered) ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: (isDark ? Colors.amberAccent : Colors.amber.shade700).withOpacity(0.15),
+                    color: (isDark ? Colors.amberAccent : Colors.amber.shade700)
+                        .withOpacity(0.15),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                      color: (isDark ? Colors.amberAccent : Colors.amber.shade700).withOpacity(0.4),
+                      color:
+                          (isDark ? Colors.amberAccent : Colors.amber.shade700)
+                              .withOpacity(0.4),
                       width: 0.8,
                     ),
                   ),
@@ -118,7 +133,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                       Icon(
                         Icons.hourglass_top_rounded,
                         size: 10,
-                        color: isDark ? Colors.amberAccent : Colors.amber.shade800,
+                        color: isDark
+                            ? Colors.amberAccent
+                            : Colors.amber.shade800,
                       ),
                       const SizedBox(width: 3),
                       Text(
@@ -126,7 +143,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                         style: TextStyle(
                           fontSize: 9.5,
                           fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.amberAccent : Colors.amber.shade800,
+                          color: isDark
+                              ? Colors.amberAccent
+                              : Colors.amber.shade800,
                         ),
                       ),
                     ],
@@ -134,20 +153,34 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                 ),
               ] else ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.green.withOpacity(0.4), width: 0.8),
+                    border: Border.all(
+                      color: Colors.green.withOpacity(0.4),
+                      width: 0.8,
+                    ),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.check_circle_rounded, size: 10, color: Colors.green),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 10,
+                        color: Colors.green,
+                      ),
                       SizedBox(width: 3),
                       Text(
                         'Answered',
-                        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.green),
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green,
+                        ),
                       ),
                     ],
                   ),
@@ -185,17 +218,33 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                 Color chipTextColor;
 
                 if (isSelected) {
-                  chipBg = isDark ? Colors.cyan.shade900 : const Color(0xFFDBEAFE);
-                  chipBorder = isDark ? Colors.cyanAccent : const Color(0xFF2563EB);
-                  chipTextColor = isDark ? Colors.cyanAccent : const Color(0xFF1D4ED8);
+                  chipBg = isDark
+                      ? Colors.cyan.shade900
+                      : const Color(0xFFDBEAFE);
+                  chipBorder = isDark
+                      ? Colors.cyanAccent
+                      : const Color(0xFF2563EB);
+                  chipTextColor = isDark
+                      ? Colors.cyanAccent
+                      : const Color(0xFF1D4ED8);
                 } else if (isDefault) {
-                  chipBg = isDark ? const Color(0xFF0F172A) : const Color(0xFFEFF6FF);
-                  chipBorder = isDark ? Colors.cyanAccent.withOpacity(0.8) : const Color(0xFF3B82F6);
-                  chipTextColor = isDark ? Colors.cyanAccent : const Color(0xFF1D4ED8);
+                  chipBg = isDark
+                      ? const Color(0xFF0F172A)
+                      : const Color(0xFFEFF6FF);
+                  chipBorder = isDark
+                      ? Colors.cyanAccent.withOpacity(0.8)
+                      : const Color(0xFF3B82F6);
+                  chipTextColor = isDark
+                      ? Colors.cyanAccent
+                      : const Color(0xFF1D4ED8);
                 } else {
                   chipBg = isDark ? const Color(0xFF0F172A) : Colors.white;
-                  chipBorder = isDark ? Colors.white24 : const Color(0xFFE2E8F0);
-                  chipTextColor = isDark ? Colors.white : const Color(0xFF1E293B);
+                  chipBorder = isDark
+                      ? Colors.white24
+                      : const Color(0xFFE2E8F0);
+                  chipTextColor = isDark
+                      ? Colors.white
+                      : const Color(0xFF1E293B);
                 }
 
                 return Material(
@@ -204,7 +253,10 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                     onTap: hasAnswered ? null : () => _submitAnswer(opt),
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: chipBg,
                         borderRadius: BorderRadius.circular(8),
@@ -215,7 +267,11 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                         boxShadow: (isDefault || isSelected)
                             ? [
                                 BoxShadow(
-                                  color: (isDark ? Colors.cyanAccent : const Color(0xFF2563EB)).withOpacity(0.12),
+                                  color:
+                                      (isDark
+                                              ? Colors.cyanAccent
+                                              : const Color(0xFF2563EB))
+                                          .withOpacity(0.12),
                                   blurRadius: 5,
                                 ),
                               ]
@@ -225,10 +281,18 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (isSelected) ...[
-                            const Icon(Icons.check_rounded, size: 12, color: Colors.green),
+                            const Icon(
+                              Icons.check_rounded,
+                              size: 12,
+                              color: Colors.green,
+                            ),
                             const SizedBox(width: 4),
                           ] else if (isDefault) ...[
-                            const Icon(Icons.star_rounded, size: 12, color: Colors.amber),
+                            const Icon(
+                              Icons.star_rounded,
+                              size: 12,
+                              color: Colors.amber,
+                            ),
                             const SizedBox(width: 4),
                           ],
                           Flexible(
@@ -237,7 +301,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                               style: TextStyle(
                                 color: chipTextColor,
                                 fontSize: 11,
-                                fontWeight: (isDefault || isSelected) ? FontWeight.w700 : FontWeight.w500,
+                                fontWeight: (isDefault || isSelected)
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
                               ),
                             ),
                           ),
@@ -265,16 +331,25 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: _showCustomInput
-                            ? (isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9))
+                            ? (isDark
+                                  ? const Color(0xFF334155)
+                                  : const Color(0xFFF1F5F9))
                             : (isDark ? const Color(0xFF0F172A) : Colors.white),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: _showCustomInput
-                              ? (isDark ? Colors.purpleAccent : const Color(0xFF8B5CF6))
-                              : (isDark ? Colors.white30 : const Color(0xFFCBD5E1)),
+                              ? (isDark
+                                    ? Colors.purpleAccent
+                                    : const Color(0xFF8B5CF6))
+                              : (isDark
+                                    ? Colors.white30
+                                    : const Color(0xFFCBD5E1)),
                           width: _showCustomInput ? 1.5 : 1,
                         ),
                       ),
@@ -284,13 +359,17 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                           Icon(
                             Icons.edit_note_rounded,
                             size: 13,
-                            color: isDark ? Colors.purpleAccent : const Color(0xFF8B5CF6),
+                            color: isDark
+                                ? Colors.purpleAccent
+                                : const Color(0xFF8B5CF6),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             'Custom Answer...',
                             style: TextStyle(
-                              color: isDark ? Colors.purpleAccent : const Color(0xFF7C3AED),
+                              color: isDark
+                                  ? Colors.purpleAccent
+                                  : const Color(0xFF7C3AED),
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
@@ -312,7 +391,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                 color: isDark ? const Color(0xFF0F172A) : Colors.white,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: isDark ? Colors.purpleAccent.withOpacity(0.6) : const Color(0xFF8B5CF6),
+                  color: isDark
+                      ? Colors.purpleAccent.withOpacity(0.6)
+                      : const Color(0xFF8B5CF6),
                   width: 1.2,
                 ),
               ),
@@ -329,7 +410,9 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                       decoration: InputDecoration(
                         hintText: 'Type your custom answer or instructions...',
                         hintStyle: TextStyle(
-                          color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                          color: isDark
+                              ? Colors.white38
+                              : const Color(0xFF94A3B8),
                           fontSize: 11,
                         ),
                         border: InputBorder.none,
@@ -343,12 +426,17 @@ class _CopilotQuestionCardState extends State<CopilotQuestionCard> {
                     icon: Icon(
                       Icons.send_rounded,
                       size: 16,
-                      color: isDark ? Colors.purpleAccent : const Color(0xFF8B5CF6),
+                      color: isDark
+                          ? Colors.purpleAccent
+                          : const Color(0xFF8B5CF6),
                     ),
                     onPressed: () => _submitAnswer(_customInputController.text),
                     tooltip: 'Send Custom Answer',
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
                   ),
                 ],
               ),

@@ -320,6 +320,24 @@ class LocalAgentService {
           }
         },
         {
+          "name": "manage_sheets",
+          "description": "Creates, switches, deletes, or lists sheet tabs in the active workbook. Use action 'create' with sheet_name to add a new sheet, 'switch' with sheet_name to change active sheet, 'delete' with sheet_name to remove a sheet, or 'list' to view sheets.",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "action": {
+                "type": "STRING",
+                "description": "Action to perform: 'create', 'switch', 'delete', or 'list'"
+              },
+              "sheet_name": {
+                "type": "STRING",
+                "description": "Name or title of the sheet tab (e.g. 'Sheet2', 'Summary')"
+              }
+            },
+            "required": ["action"]
+          }
+        },
+        {
           "name": "find_clusters",
           "description": "OpenRefine-style fuzzy clustering. Finds groups of similar values in a column (Samsung/Samsng/SAMSUNG \u2192 cluster). Use for company names, city names, product names with typos or inconsistent casing. Returns: clusters [{canonical (most common form), variants[], avgSimilarity, algorithm}].",
           "parameters": {
@@ -1429,11 +1447,13 @@ Pipeline MUST have {"steps": [...]}. Example:
   static bool _isCancelled = false;
   static String? _waitingQuestionName;
   static Map<String, dynamic>? _waitingQuestionArgs;
+  static String? _waitingQuestionSheetId;
 
   static void cancelLoop() {
     _isCancelled = true;
     _waitingQuestionName = null;
     _waitingQuestionArgs = null;
+    _waitingQuestionSheetId = null;
     debugPrint("[CopilotAgent] Loop cancellation requested.");
   }
 
@@ -1442,6 +1462,7 @@ Pipeline MUST have {"steps": [...]}. Example:
     _activeSheetId = null;
     _waitingQuestionName = null;
     _waitingQuestionArgs = null;
+    _waitingQuestionSheetId = null;
     NativeEngine.clearGrid();
     debugPrint("[CopilotAgent] Persistent memory & native grid cleared.");
   }
@@ -1452,9 +1473,12 @@ Pipeline MUST have {"steps": [...]}. Example:
       NativeEngine.initialize();
       NativeEngine.clearGrid();
 
-      // 2. If activeSheetId changed, clear agent memory history
+      // 2. If activeSheetId changed, clear agent memory history and waiting question state
       if (_activeSheetId != null && _activeSheetId != sheetId) {
         _persistentMemoryHistory.clear();
+        _waitingQuestionName = null;
+        _waitingQuestionArgs = null;
+        _waitingQuestionSheetId = null;
       }
       _activeSheetId = sheetId;
 
@@ -1582,10 +1606,11 @@ Pipeline MUST have {"steps": [...]}. Example:
       _persistentMemoryHistory.clear();
       _waitingQuestionName = null;
       _waitingQuestionArgs = null;
+      _waitingQuestionSheetId = null;
     }
 
-    if (_waitingQuestionName != null) {
-      debugPrint("[CopilotAgent] Resuming with user answer for question: '$prompt'");
+    if (_waitingQuestionName != null && _waitingQuestionSheetId == sheetId) {
+      debugPrint("[CopilotAgent] Resuming with user answer for question on sheet '$sheetId': '$prompt'");
       _persistentMemoryHistory.add({
         "role": "model",
         "parts": [
@@ -1611,7 +1636,11 @@ Pipeline MUST have {"steps": [...]}. Example:
       });
       _waitingQuestionName = null;
       _waitingQuestionArgs = null;
+      _waitingQuestionSheetId = null;
     } else {
+      _waitingQuestionName = null;
+      _waitingQuestionArgs = null;
+      _waitingQuestionSheetId = null;
       _persistentMemoryHistory.add({
         "role": "user",
         "parts": [{"text": prompt}]
@@ -2198,44 +2227,23 @@ Pipeline MUST have {"steps": [...]}. Example:
                     "response": { "name": name, "status": "Executed successfully" }
                   }});
             } else if (name == 'manage_sheets') {
-
               final action = args['action']?.toString() ?? 'list';
               final targetSheetName = args['sheet_name']?.toString() ?? 'Sheet2';
 
               CopilotService.updateStatus(AgentStatus.executing);
               CopilotService.addActionLog('Workbook Multi-Sheet', 'Action: $action, Target: $targetSheetName');
 
-              Map<String, dynamic> responsePayload = {};
-              if (action == 'create') {
-                responsePayload = {
-                  "status": "Sheet '$targetSheetName' created successfully",
-                  "active_sheet": targetSheetName,
-                  "sheets": ["Sheet1", targetSheetName]
-                };
-              } else if (action == 'switch') {
-                responsePayload = {
-                  "status": "Switched active sheet context to '$targetSheetName'",
-                  "active_sheet": targetSheetName
-                };
-              } else if (action == 'delete') {
-                responsePayload = {
-                  "status": "Sheet '$targetSheetName' deleted",
-                  "active_sheet": "Sheet1",
-                  "sheets": ["Sheet1"]
-                };
-              } else {
-                responsePayload = {
-                  "status": "Multi-sheet workbook listing",
-                  "active_sheet": "Sheet1",
-                  "sheets": ["Sheet1", "Summary", "CleanData"]
-                };
-              }
+              final responsePayload = await CopilotService.executeManageSheets(
+                action: action,
+                sheetName: targetSheetName,
+              );
 
               userParts.add({
-                    "functionResponse": {
-                      "name": name,
-                      "response": {"name": name, "result": responsePayload}
-                    }});
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "result": responsePayload}
+                }
+              });
             } else if (name == 'export_data') {
 
 
@@ -2342,6 +2350,7 @@ Pipeline MUST have {"steps": [...]}. Example:
 
               _waitingQuestionName = name;
               _waitingQuestionArgs = args;
+              _waitingQuestionSheetId = sheetId;
 
               return CopilotResponse(
                 success: true,
@@ -2394,6 +2403,21 @@ Pipeline MUST have {"steps": [...]}. Example:
               CopilotService.updateStatus(AgentStatus.executing);
               CopilotService.addActionLog('Wrote Sheet Tab', 'Updated ${cells.length} cells in $target');
               final result = await executeWriteToSheetTab(sheetNameOrId: target, cells: cells);
+              userParts.add({
+                "functionResponse": {
+                  "name": name,
+                  "response": {"name": name, "content": result}
+                }
+              });
+            } else if (name == 'manage_sheets') {
+              final action = args['action']?.toString() ?? 'list';
+              final targetSheetName = args['sheet_name']?.toString() ?? 'Sheet2';
+              CopilotService.updateStatus(AgentStatus.executing);
+              CopilotService.addActionLog('Workbook Multi-Sheet', 'Action: $action, Target: $targetSheetName');
+              final result = await CopilotService.executeManageSheets(
+                action: action,
+                sheetName: targetSheetName,
+              );
               userParts.add({
                 "functionResponse": {
                   "name": name,

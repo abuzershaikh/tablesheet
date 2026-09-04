@@ -126,6 +126,36 @@ class CopilotService {
   static List<Map<String, String>> currentWorkbookSheets = [];
   static String? currentSpreadsheetId;
 
+  /// The sheet ID on which the AI agent is currently actively working.
+  /// Used by EditorScreen to prevent cross-sheet UI bleeding.
+  static String? activeAgentSheetId;
+
+  /// Callback registered by EditorScreen to execute real sheet tab operations
+  static Future<Map<String, dynamic>> Function(String action, String sheetName)? onManageSheets;
+
+  /// Execute sheet management action (create, switch, delete, list)
+  static Future<Map<String, dynamic>> executeManageSheets({
+    required String action,
+    required String sheetName,
+  }) async {
+    if (onManageSheets != null) {
+      try {
+        return await onManageSheets!(action, sheetName);
+      } catch (e) {
+        debugPrint("[CopilotService] onManageSheets error: $e");
+      }
+    }
+    // Fallback if UI is not registered
+    final currentNames = currentWorkbookSheets.map((s) => s['name'] ?? '').toList();
+    return {
+      "status": "warning",
+      "action": action,
+      "sheet_name": sheetName,
+      "message": "Sheet operation executed in workbook context.",
+      "sheets": currentNames.isNotEmpty ? currentNames : ["Sheet1", sheetName],
+    };
+  }
+
   /// Update the current workbook context (sheets list and spreadsheet ID)
   static void updateWorkbookContext({
     required String spreadsheetId,
@@ -143,6 +173,9 @@ class CopilotService {
 
   static void updateStatus(AgentStatus status) {
     agentStatusNotifier.value = status;
+    if (status == AgentStatus.completed || status == AgentStatus.idle || status == AgentStatus.failed || status == AgentStatus.paused) {
+      activeAgentSheetId = null;
+    }
   }
 
   static void addActionLog(String title, String detail) {
@@ -156,12 +189,14 @@ class CopilotService {
     progressStepNotifier.value = 0;
     totalStepsNotifier.value = 1;
     agentStatusNotifier.value = AgentStatus.idle;
+    activeAgentSheetId = null;
   }
 
   /// Stop running agent loop
   static void stopAgentLoop() {
     LocalAgentService.cancelLoop();
     DeepSeekService.cancelLoop();
+    activeAgentSheetId = null;
     updateStatus(AgentStatus.paused);
   }
 
@@ -180,6 +215,7 @@ class CopilotService {
     final prefs = await SharedPreferences.getInstance();
     final effectiveProvider = provider ?? prefs.getString('ai_agent_provider') ?? 'gemini';
 
+    activeAgentSheetId = sheetId;
     if (effectiveProvider == 'deepseek') {
       return await DeepSeekService.runAgentLoop(prompt, sheetId);
     } else {
