@@ -1,4 +1,5 @@
 #include "js_engine.h"
+#include "js_libraries/bundled_libraries.h"
 #include "grid_manager.h"
 #include "conditional_formatting/cf_manager.h"
 #include "data_engine/pattern_intelligence/sequence_pattern.h"
@@ -33,6 +34,25 @@
 
 extern ConditionalFormatting::CFManager* g_cfManager;
 
+int JsEngine::jsInterruptHandler(JSRuntime *rt, void *opaque) {
+    if (!opaque) return 0;
+    auto* ctx = static_cast<TimeoutContext*>(opaque);
+    if (std::chrono::steady_clock::now() > ctx->deadline) {
+        ctx->timedOut = true;
+        return 1; // Non-zero interrupts execution
+    }
+    return 0;
+}
+
+JSModuleDef* JsEngine::jsModuleLoader(JSContext *ctx, const char *module_name, void *opaque) {
+    return JsLibraries::loadModule(ctx, module_name);
+}
+
+void JsEngine::bindBundledLibraries() {
+    if (!m_ctx) return;
+    JsLibraries::bindAllGlobals(m_ctx);
+}
+
 JsEngine& JsEngine::getInstance() {
     static JsEngine instance;
     return instance;
@@ -54,6 +74,12 @@ bool JsEngine::init() {
         return false;
     }
 
+    // 🛡️ Set 64MB memory limit for mobile safety against out-of-memory crashes
+    JS_SetMemoryLimit(m_rt, 64 * 1024 * 1024);
+
+    // 📦 Enable ES Module Loader for bundled libraries (e.g. import { VLOOKUP } from 'formulajs')
+    JS_SetModuleLoaderFunc(m_rt, nullptr, jsModuleLoader, this);
+
     m_ctx = JS_NewContext(m_rt);
     if (!m_ctx) {
         LOGE("Failed to create QuickJS Context");
@@ -63,8 +89,9 @@ bool JsEngine::init() {
     }
 
     bindNativeApis();
+    bindBundledLibraries();
     m_initialized = true;
-    LOGI("JsEngine initialized successfully with QuickJS");
+    LOGI("JsEngine initialized successfully with QuickJS and bundled libraries");
     return true;
 }
 
@@ -1907,11 +1934,33 @@ std::string JsEngine::evalScript(const std::string& code) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!init()) return "Error: Engine not initialized";
 
-    // 🛡️ IIFE Wrapper to support top-level return statements in AI/User scripts
-    std::string wrappedCode = "(function() {\n" + code + "\n})();";
-    JSValue val = JS_Eval(m_ctx, wrappedCode.c_str(), wrappedCode.size(), "<user_script>", JS_EVAL_TYPE_GLOBAL);
+    // ⏱️ Install execution timeout watchdog
+    TimeoutContext timeoutCtx;
+    timeoutCtx.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_timeoutMs);
+    timeoutCtx.timedOut = false;
+    JS_SetInterruptHandler(m_rt, jsInterruptHandler, &timeoutCtx);
 
-    
+    // 📦 Determine if script contains ES Module syntax
+    bool isModule = (code.find("import ") != std::string::npos || code.find("export ") != std::string::npos);
+
+    JSValue val;
+    if (isModule) {
+        val = JS_Eval(m_ctx, code.c_str(), code.size(), "<user_script>", JS_EVAL_TYPE_MODULE);
+    } else {
+        // 🛡️ IIFE Wrapper to support top-level return statements in AI/User scripts
+        std::string wrappedCode = "(function() {\n" + code + "\n})();";
+        val = JS_Eval(m_ctx, wrappedCode.c_str(), wrappedCode.size(), "<user_script>", JS_EVAL_TYPE_GLOBAL);
+    }
+
+    // 🔄 Flush any pending Promise microtasks / asynchronous jobs
+    JSContext *pctx;
+    while (JS_IsJobPending(m_rt)) {
+        JS_ExecutePendingJob(m_rt, &pctx);
+    }
+
+    // Reset interrupt handler
+    JS_SetInterruptHandler(m_rt, nullptr, nullptr);
+
     if (JS_IsException(val)) {
         JSValue exception_val = JS_GetException(m_ctx);
         const char* errStr = JS_ToCString(m_ctx, exception_val);
@@ -1919,13 +1968,17 @@ std::string JsEngine::evalScript(const std::string& code) {
         if (errStr) JS_FreeCString(m_ctx, errStr);
         JS_FreeValue(m_ctx, exception_val);
         JS_FreeValue(m_ctx, val);
+
+        if (timeoutCtx.timedOut || err.find("interrupted") != std::string::npos) {
+            err = "Script execution timed out (limit: " + std::to_string(m_timeoutMs) + "ms)";
+        }
         
         std::string consoleOut = popConsoleOutput();
         std::string escapedErr = err;
         // Escape quotes for JSON
         size_t pos = 0;
         while ((pos = escapedErr.find('"', pos)) != std::string::npos) { escapedErr.replace(pos, 1, "\\\""); pos += 2; }
-        while ((pos = escapedErr.find('\n', pos)) != std::string::npos) { escapedErr.replace(pos, 1, "\\n"); pos += 2; }
+        pos = 0; while ((pos = escapedErr.find('\n', pos)) != std::string::npos) { escapedErr.replace(pos, 1, "\\n"); pos += 2; }
         
         std::string escapedConsole = consoleOut;
         pos = 0; while ((pos = escapedConsole.find('"', pos)) != std::string::npos) { escapedConsole.replace(pos, 1, "\\\""); pos += 2; }
@@ -1970,11 +2023,18 @@ std::string JsEngine::callJsFunction(const std::string& funcName, const std::vec
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!init()) return "Error: Engine not initialized";
 
+    // ⏱️ Install execution timeout watchdog
+    TimeoutContext timeoutCtx;
+    timeoutCtx.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_timeoutMs);
+    timeoutCtx.timedOut = false;
+    JS_SetInterruptHandler(m_rt, jsInterruptHandler, &timeoutCtx);
+
     JSValue globalObj = JS_GetGlobalObject(m_ctx);
     JSValue funcVal = JS_GetPropertyStr(m_ctx, globalObj, funcName.c_str());
     JS_FreeValue(m_ctx, globalObj);
 
     if (!JS_IsFunction(m_ctx, funcVal)) {
+        JS_SetInterruptHandler(m_rt, nullptr, nullptr);
         JS_FreeValue(m_ctx, funcVal);
         return "Error: Function " + funcName + " not found";
     }
@@ -1990,6 +2050,15 @@ std::string JsEngine::callJsFunction(const std::string& funcName, const std::vec
 
     JSValue resVal = JS_Call(m_ctx, funcVal, JS_UNDEFINED, args.size(), args.data());
     
+    // Flush microtasks
+    JSContext *pctx;
+    while (JS_IsJobPending(m_rt)) {
+        JS_ExecutePendingJob(m_rt, &pctx);
+    }
+
+    // Reset interrupt handler
+    JS_SetInterruptHandler(m_rt, nullptr, nullptr);
+
     for (auto& a : args) JS_FreeValue(m_ctx, a);
     JS_FreeValue(m_ctx, funcVal);
 
@@ -2003,6 +2072,10 @@ std::string JsEngine::callJsFunction(const std::string& funcName, const std::vec
         }
         JS_FreeValue(m_ctx, exceptionVal);
         JS_FreeValue(m_ctx, resVal);
+
+        if (timeoutCtx.timedOut || err.find("interrupted") != std::string::npos) {
+            err = "JS Error: Script execution timed out (limit: " + std::to_string(m_timeoutMs) + "ms)";
+        }
         return err;
     }
 

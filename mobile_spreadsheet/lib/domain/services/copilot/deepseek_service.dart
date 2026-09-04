@@ -43,6 +43,7 @@ class DeepSeekService {
 
   static List<Map<String, dynamic>> get _deepSeekTools {
     final list = <Map<String, dynamic>>[];
+    final seen = <String>{};
     try {
       final toolGroups = LocalAgentService.tools;
       for (final g in toolGroups) {
@@ -50,7 +51,11 @@ class DeepSeekService {
         if (decls != null) {
           for (final d in decls) {
             if (d is Map) {
-              list.add(_convertDeclarationToOpenAi(Map<String, dynamic>.from(d)));
+              final name = d['name']?.toString();
+              if (name != null && name.isNotEmpty && !seen.contains(name)) {
+                seen.add(name);
+                list.add(_convertDeclarationToOpenAi(Map<String, dynamic>.from(d)));
+              }
             }
           }
         }
@@ -98,6 +103,28 @@ class DeepSeekService {
   static Future<String> getSelectedModel() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('deepseek_selected_model') ?? 'deepseek-chat';
+  }
+
+  static Future<http.Response> _postWithRetry(Uri uri, Map<String, String> headers, String body) async {
+    int maxAttempts = 3;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      final client = http.Client();
+      try {
+        final response = await client.post(
+          uri,
+          headers: headers,
+          body: body,
+        ).timeout(const Duration(seconds: 45));
+        return response;
+      } catch (e) {
+        debugPrint("[DeepSeekService] Attempt $attempt/$maxAttempts failed: $e");
+        if (attempt == maxAttempts) rethrow;
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+      } finally {
+        client.close();
+      }
+    }
+    throw Exception("Failed to connect to DeepSeek after $maxAttempts attempts.");
   }
 
   static bool _isCancelled = false;
@@ -304,11 +331,18 @@ When cleaning data in the sheet:
   * If a date contains ISO timestamp (e.g. `2025-04-28T00:00:00.000Z`), extract `2025-04-28`.
   * If a date is DD-MM-YYYY (e.g. `12-05-2025`), convert to `2025-05-12`.
   * For placeholder/dummy dates like '0', empty string, or day 00, clear the cell using `clearContent()`.
-- PHONE NUMBER SANITIZATION:
+- PHONE NUMBER SANITIZATION & COUNTRY BIDIRECTIONAL MAPPING:
   * Strip any scientific notation or noise.
-  * For 10-digit mobile numbers (e.g. 9823456789), format as `+91 XXXXXXXXXX`.
-  * For 12-digit numbers starting with 91 (e.g. 919823456789), format as `+91 XXXXXXXXXX`.
+  * For 10-digit mobile numbers (e.g. 9823456789), format as `+91XXXXXXXXXX`.
+  * For 12-digit numbers starting with 91 (e.g. 919823456789), format as `+91XXXXXXXXXX`.
   * If a cell contains placeholder '0' or dummy digits like '12345', clear it.
+  * Built-in `CountryData` in QuickJS for ONE-STEP BATCH MAPPING:
+    - User asks "phone number ki country likh" / "infer country from phone":
+      Use `build_pipeline` with `run_script`:
+      `const sh=SpreadsheetApp.getActiveSheet(); const lr=sh.getLastRow(); const phones=sh.getRange("D2:D"+lr).getValues(); const countries=phones.map(r=>[CountryData.extractCountryFromPhone(r[0])||'']); sh.getRange("G2:G"+lr).setValues(countries);`
+    - User asks "country dekh kar phone me country code add kar" / "add country code to phone based on country":
+      Use `build_pipeline` with `run_script`:
+      `const sh=SpreadsheetApp.getActiveSheet(); const lr=sh.getLastRow(); const data=sh.getRange("D2:G"+lr).getValues(); const updated=data.map(r=>[CountryData.formatPhoneWithCountry(r[0],r[3])]); sh.getRange("D2:D"+lr).setValues(updated);`
 
 === MULTI-SHEET WORKBOOK PROTOCOL ===
 - This workbook can contain multiple sheet tabs (e.g. Sheet 1, Sheet 2, Instructions, Summary, etc.).
@@ -470,14 +504,14 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
           payload["tool_choice"] = "auto";
         }
 
-        final response = await http.post(
+        final response = await _postWithRetry(
           Uri.parse(_baseUrl),
-          headers: {
+          {
             "Content-Type": "application/json",
             "Authorization": "Bearer ${apiKey.trim()}",
           },
-          body: jsonEncode(payload),
-        ).timeout(const Duration(seconds: 45));
+          jsonEncode(payload),
+        );
 
         if (response.statusCode != 200) {
           debugPrint("[DeepSeekService] API Error (${response.statusCode}): ${response.body}");
@@ -971,8 +1005,8 @@ Available pipeline step types: clean_column (column), stitch_multi_line_records,
         if (e is TimeoutException || errStr.contains('TimeoutException') || errStr.contains('timed out')) {
           return CopilotResponse.withError("DeepSeek Request Timed Out (45s). Please check your internet connection and try again.");
         }
-        if (errStr.contains('Failed host lookup') || errStr.contains('SocketException') || errStr.contains('Network is unreachable') || errStr.contains('errno = 7')) {
-          return CopilotResponse.withError("Network Error: No internet connection. Please check your Wi-Fi or Mobile Data connection on your device.");
+        if (errStr.contains('Failed host lookup') || errStr.contains('SocketException') || errStr.contains('Network is unreachable') || errStr.contains('errno = 7') || errStr.contains('connection abort') || errStr.contains('ClientException')) {
+          return CopilotResponse.withError("Network Connection Error: DeepSeek connection dropped or was reset. Please check your internet/Wi-Fi and try again.");
         }
         return CopilotResponse.withError("DeepSeek Error: $e");
       }

@@ -528,24 +528,6 @@ class LocalAgentService {
           }
         },
         {
-          "name": "manage_sheets",
-          "description": "Manages multi-sheet workbook tabs. Supports creating new sheet tabs ('create'), switching active sheet ('switch'), listing all sheets ('list'), or deleting a sheet ('delete').",
-          "parameters": {
-            "type": "OBJECT",
-            "properties": {
-              "action": {
-                "type": "STRING",
-                "description": "Action type: 'create', 'switch', 'list', 'delete'"
-              },
-              "sheet_name": {
-                "type": "STRING",
-                "description": "Name of the sheet tab (e.g. 'Summary', 'CleanData', 'Report', 'Sheet2')"
-              }
-            },
-            "required": ["action"]
-          }
-        },
-        {
           "name": "group_data",
           "description": "Groups sheet data by a single category column and aggregates a value column (e.g. '=GROUPBY(Region, Sales, SUM)'). Call this when user requests single-dimension aggregation like 'Region wise sales' or 'Department wise count'.",
           "parameters": {
@@ -751,7 +733,7 @@ class LocalAgentService {
                         },
                         "script": {
                           "type": "STRING",
-                          "description": "JavaScript code to execute for run_script action. Has access to Google Apps Script API: var sheet = SpreadsheetApp.getActiveSheet(); sheet.getRange('A1').setValue('x'); sheet.getLastRow(); etc."
+                          "description": "JavaScript code to execute for run_script action. Has access to Google Apps Script API (SpreadsheetApp) AND pre-bundled JS libraries: dayjs (dates), formulajs (VLOOKUP, INDEX, MATCH, PMT), Fuse (fuzzy search), currency (money math), regression (trendlines/forecasting), Papa (CSV). Supports ES module imports (e.g. import { VLOOKUP } from 'formulajs';)."
                         },
                         "transform": {
                           "type": "STRING",
@@ -965,7 +947,49 @@ ALWAYS use `build_pipeline` with a `run_script` action step:
 - Range: `.getValue()`, `.getValues()`, `.setValue(v)`, `.setValues([[v1,v2]])`, `.setBackground('#HEX')`, `.setFontColor('#HEX')`, `.setFontWeight('bold')`, `.clear()`, `.getNumRows()`, `.getNumColumns()`
 - API: `fetch(url)` for external data
 
+=== PRE-BUNDLED JS LIBRARIES (Available Globally & via ES Modules) ===
+1. `dayjs`: Ultra-fast Date/Time manipulation & formatting
+   - `dayjs('2026-09-04').format('DD/MM/YYYY')`
+   - `dayjs(val).add(30, 'day').format('YYYY-MM-DD')`
+   - `dayjs(d1).diff(d2, 'day')`
+2. `formulajs` / `FormulaJS`: 300+ standard Excel functions
+   - `formulajs.VLOOKUP(lookup_val, table_matrix, col_idx, false)`
+   - `formulajs.INDEX(matrix, row, col)`
+   - `formulajs.MATCH(lookup_val, array)`
+   - `formulajs.PMT(rate, nper, pv)`
+   - `formulajs.SUMIFS(sum_range, crit_range, crit)`
+3. `Fuse`: Fuzzy search / typo matching
+   - `var fuse = new Fuse(items, { keys: ['name'], threshold: 0.3 }); var matches = fuse.search('Abuzar');`
+4. `currency`: Decimal-safe financial and money calculations
+   - `currency(19.99).add(0.01).format({ symbol: '₹' })`
+   - `currency(total).distribute(3)`
+5. `regression`: Forecasting and trendline prediction
+   - `var model = regression.linear(xyData); var nextSales = model.predict(monthNumber)[1];`
+6. `Papa`: CSV parsing and serialization
+   - `var parsed = Papa.parse(csvString, { header: true });`
+7. `CountryData` / `CountryCodes`: Bidirectional Phone <-> Country mapping & formatting
+   - `CountryData.extractCountryFromPhone("+91 9876543210")` -> `"India"`
+   - `CountryData.extractCountryFromPhone("+1 4155552671")` -> `"United States"`
+   - `CountryData.extractCountryFromPhone("+44 7911123456")` -> `"United Kingdom"`
+   - `CountryData.getCallingCode("India")` -> `"+91"`
+   - `CountryData.getCallingCode("USA")` -> `"+1"`
+   - `CountryData.getCallingCode("UK")` -> `"+44"`
+   - `CountryData.getCallingCode("UAE")` -> `"+971"`
+   - `CountryData.formatPhoneWithCountry("9876543210", "India")` -> `"+919876543210"`
+
 === EXAMPLE ADVANCED SCRIPTS ===
+// Map Country name from Phone numbers in Column D and write to Column G in ONE BATCH:
+`const ss=SpreadsheetApp.getActiveSpreadsheet(); const sh=ss.getActiveSheet(); const lr=sh.getLastRow(); const phones=sh.getRange("D2:D"+lr).getValues(); const countries=phones.map(r=>[CountryData.extractCountryFromPhone(r[0])||'']); sh.getRange("G2:G"+lr).setValues(countries);`
+
+// Add Country Calling Code to Phone numbers in Column D based on Country in Column G in ONE BATCH:
+`const ss=SpreadsheetApp.getActiveSpreadsheet(); const sh=ss.getActiveSheet(); const lr=sh.getLastRow(); const data=sh.getRange("D2:G"+lr).getValues(); const updated=data.map(r=>[CountryData.formatPhoneWithCountry(r[0],r[3])]); sh.getRange("D2:D"+lr).setValues(updated);`
+
+// Standardize messy dates to YYYY-MM-DD with dayjs:
+`var s=SpreadsheetApp.getActiveSheet(); var lr=s.getLastRow(); for(var r=2;r<=lr;r++){var v=s.getRange('A'+r).getValue(); if(v){var d=dayjs(v); if(d.isValid()) s.getRange('A'+r).setValue(d.format('YYYY-MM-DD'));}}`
+
+// Predict next 3 months sales using regression:
+`var s=SpreadsheetApp.getActiveSheet(); var lr=s.getLastRow(); var pts=[]; for(var r=2;r<=lr;r++){var y=parseFloat(s.getRange('B'+r).getValue()); if(!isNaN(y)) pts.push([r-1, y]);}; var mod=regression.linear(pts); for(var i=1;i<=3;i++){s.getRange(lr+i,1).setValue('Forecast Month '+(lr+i-1)); s.getRange(lr+i,2).setValue(Math.round(mod.predict(lr+i-1)[1])); s.getRange(lr+i,2).setBackground('#E8F0FE');}`
+
 // Normalize mixed phone column with JS:
 `var s=SpreadsheetApp.getActiveSheet(); var lr=s.getLastRow(); for(var r=2;r<=lr;r++){var v=s.getRange('A'+r).getValue()+''; var d=v.replace(/[^\\d]/g,''); if(d.length==10) s.getRange('A'+r).setValue('+91'+d); else if(d.length==11&&d[0]=='0') s.getRange('A'+r).setValue('+91'+d.substr(1));}`
 
@@ -1501,6 +1525,7 @@ Pipeline MUST have {"steps": [...]}. Example:
             final trimmed = val.trim();
             final isLongOrSpecial = (trimmed.length >= 8 && RegExp(r'^\d+$').hasMatch(trimmed)) ||
                 (trimmed.length > 1 && trimmed.startsWith('0') && !trimmed.startsWith('0.')) ||
+                trimmed.startsWith('+') ||
                 trimmed.contains('-') ||
                 trimmed.contains('/') ||
                 trimmed.contains(':');

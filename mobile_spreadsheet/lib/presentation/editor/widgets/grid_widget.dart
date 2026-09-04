@@ -37,14 +37,19 @@ String _recalculateAllTask(Map<String, String> cellData) {
     if (trimmed.startsWith('=')) {
       NativeEngine.setCellFormula(cellRef, trimmed);
     } else {
-      // Clean currency/thousands formatting if purely numeric
-      final cleanNumStr = trimmed.replaceAll(RegExp(r'[^0-9.\-+eE]'), '');
-      final isFormattedNum = cleanNumStr.isNotEmpty && !trimmed.contains(RegExp(r'[a-df-zA-DF-Z]'));
-      final num = double.tryParse(isFormattedNum ? cleanNumStr : trimmed);
-      if (num != null) {
-        NativeEngine.setCellConstant(cellRef, num);
-      } else {
+      if (trimmed.startsWith('+')) {
+        // Phone numbers or strings with leading +: preserve as string
         NativeEngine.setCellConstantString(cellRef, val);
+      } else {
+        // Clean currency/thousands formatting if purely numeric
+        final cleanNumStr = trimmed.replaceAll(RegExp(r'[^0-9.\-+eE]'), '');
+        final isFormattedNum = cleanNumStr.isNotEmpty && !trimmed.contains(RegExp(r'[a-df-zA-DF-Z]'));
+        final num = double.tryParse(isFormattedNum ? cleanNumStr : trimmed);
+        if (num != null) {
+          NativeEngine.setCellConstant(cellRef, num);
+        } else {
+          NativeEngine.setCellConstantString(cellRef, val);
+        }
       }
     }
   });

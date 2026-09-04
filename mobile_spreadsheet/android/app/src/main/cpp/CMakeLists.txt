@@ -144,6 +144,7 @@ add_library(
     function_registry.cpp
     grid_manager.cpp
     js_engine.cpp
+    js_libraries/bundled_libraries.cpp
     ${QUICKJS_SOURCES}
     ${FUNCTION_SOURCES}
     ${CF_SOURCES}

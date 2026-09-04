@@ -15,6 +15,7 @@
 #include "../cluster/cluster_engine.h"
 #include "../pattern_intelligence/repair_suggester.h"
 #include "../pattern_intelligence/relational_pattern.h"
+#include "../../js_engine.h"
 #include <iostream>
 #include <cassert>
 
@@ -30,6 +31,7 @@ void TestRunner::runAllTests() {
     testRowAligner();
     testPatternIntelligence();
     testExtremeDataCleaningBenchmark();
+    testJsEngineAndBundledLibraries();
     std::cout << "All DataPipeline & SOTA Cleaning Tests Passed Successfully!" << std::endl;
 }
 
@@ -310,4 +312,61 @@ void TestRunner::testExtremeDataCleaningBenchmark() {
     std::cout << "  ✅ All AI Agent Super-Tools & Extreme Benchmark Scenarios Passed with 100% Accuracy!\n";
 }
 
+void TestRunner::testJsEngineAndBundledLibraries() {
+    auto& js = JsEngine::getInstance();
+    assert(js.init());
+
+    // 1. Test Day.js
+    std::string dayRes = js.evalScript("dayjs('2026-09-04').format('YYYY/MM/DD');");
+    assert(dayRes.find("2026/09/04") != std::string::npos);
+
+    // 2. Test FormulaJS (VLOOKUP & SUM)
+    std::string vlookRes = js.evalScript("formulajs.VLOOKUP('B', [['A', 10], ['B', 20], ['C', 30]], 2, false);");
+    assert(vlookRes.find("20") != std::string::npos);
+
+    std::string sumRes = js.evalScript("formulajs.SUM(10, 20, 30, [40, 50]);");
+    assert(sumRes.find("150") != std::string::npos);
+
+    // 3. Test Fuse.js (Fuzzy Match)
+    std::string fuseRes = js.evalScript("var f = new Fuse(['Abuzar Shaikh', 'Rahul Sharma', 'John Doe']); var r = f.search('Abuzer'); r[0].item;");
+    assert(fuseRes.find("Abuzar Shaikh") != std::string::npos);
+
+    // 4. Test Currency.js
+    std::string currRes = js.evalScript("currency(19.99).add(0.01).format();");
+    assert(currRes.find("$20.00") != std::string::npos);
+
+    // 5. Test Regression.js
+    std::string regRes = js.evalScript("var mod = regression.linear([[1, 2], [2, 4], [3, 6]]); mod.predict(4)[1];");
+    assert(regRes.find("8") != std::string::npos);
+
+    // 6. Test PapaParse
+    std::string papaRes = js.evalScript("var p = Papa.parse('Name,Age\\nAlice,25\\nBob,30', { header: true }); p.data[0].Name;");
+    assert(papaRes.find("Alice") != std::string::npos);
+
+    // 7. Test CountryData (Phone-Country Bidirectional Mapping)
+    std::string c1 = js.evalScript("CountryData.extractCountryFromPhone('+919876543210');");
+    assert(c1.find("India") != std::string::npos);
+
+    std::string c2 = js.evalScript("CountryData.extractCountryFromPhone('+14155552671');");
+    assert(c2.find("United States") != std::string::npos);
+
+    std::string c3 = js.evalScript("CountryData.extractCountryFromPhone('+447911123456');");
+    assert(c3.find("United Kingdom") != std::string::npos);
+
+    std::string code1 = js.evalScript("CountryData.getCallingCode('India');");
+    assert(code1.find("+91") != std::string::npos);
+
+    std::string fmt1 = js.evalScript("CountryData.formatPhoneWithCountry('9876543210', 'India');");
+    assert(fmt1.find("+919876543210") != std::string::npos);
+
+    // 8. Test Timeout Watchdog with Infinite Loop (set short timeout for test)
+    js.setTimeoutMs(100);
+    std::string timeoutRes = js.evalScript("while(true) {}");
+    assert(timeoutRes.find("timed out") != std::string::npos);
+    js.setTimeoutMs(5000); // restore default
+
+    std::cout << "  ✅ QuickJS Sandboxing, Timeout Watchdog & Bundled Libraries (Day.js, FormulaJS, Fuse, Currency, Regression, PapaParse, CountryData) Passed 100%!\n";
+}
+
 } // namespace DataPipeline
+

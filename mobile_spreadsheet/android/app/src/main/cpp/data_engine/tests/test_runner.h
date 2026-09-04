@@ -16,6 +16,7 @@ private:
     static void testRowAligner();
     static void testPatternIntelligence();
     static void testExtremeDataCleaningBenchmark();
+    static void testJsEngineAndBundledLibraries();
 };
 
 } // namespace DataPipeline

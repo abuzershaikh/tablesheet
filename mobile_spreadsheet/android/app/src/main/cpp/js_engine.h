@@ -12,8 +12,15 @@ extern "C" {
 #include "quickjs/quickjs.h"
 }
 
+#include <chrono>
+
 // Function signature for Dart fetch callback: (const char* url, const char* options_json) -> char* response_json
 typedef char* (*DartFetchCallbackFn)(const char* url, const char* options_json);
+
+struct TimeoutContext {
+    std::chrono::steady_clock::time_point deadline;
+    bool timedOut{false};
+};
 
 class JsEngine {
 public:
@@ -22,6 +29,10 @@ public:
     // Initialization & Destruction
     bool init();
     void cleanup();
+
+    // Execution Timeout Configuration (default: 5000ms)
+    void setTimeoutMs(int ms) { m_timeoutMs = ms; }
+    int getTimeoutMs() const { return m_timeoutMs; }
 
     // Script Execution
     std::string evalScript(const std::string& code);
@@ -52,6 +63,10 @@ public:
     void enqueueUiAction(const std::string& actionJson);
     std::vector<std::string> flushUiActions();
 
+    // Static QuickJS Callbacks
+    static int jsInterruptHandler(JSRuntime *rt, void *opaque);
+    static JSModuleDef* jsModuleLoader(JSContext *ctx, const char *module_name, void *opaque);
+
 private:
     JsEngine();
     ~JsEngine();
@@ -60,6 +75,9 @@ private:
     void bindConsole();
     void bindSpreadsheetApp();
     void bindFetch();
+    void bindBundledLibraries();
+
+    int m_timeoutMs{5000};
 
     JSRuntime* m_rt{nullptr};
     JSContext* m_ctx{nullptr};
